@@ -3,6 +3,7 @@ import glob
 import json
 import os
 import socket
+import sys
 import threading
 import time
 from pathlib import Path
@@ -72,7 +73,7 @@ class ReceiveServer:
                 try:
                     self._handle(conn, addr)
                 except Exception as e:
-                    self.on_log(f"[!] Error: {e}")
+                    self.on_log(f"[!] Error: {type(e).__name__}: {e}")
                 finally:
                     try:
                         conn.close()
@@ -105,7 +106,7 @@ class ReceiveServer:
         protocol.send_msg(conn, {"type": "hello_ok"})
         self.on_log(f"[OK] Cliente '{hello.get('hostname','?')}' autenticado")
 
-        files_ok = files_skip = 0
+        files_ok = files_skip = files_fail = 0
         finished = False
         bytes_ok = 0
         t0 = time.time()
@@ -116,7 +117,7 @@ class ReceiveServer:
                 break
             typ = msg.get("type")
             if typ == "done":
-                protocol.send_msg(conn, {"status": "ok"})
+                protocol.send_msg(conn, {"status": "ok", "failed": files_fail})
                 finished = True
                 break
             if typ == "plan":
@@ -126,6 +127,9 @@ class ReceiveServer:
                 continue
             if typ == "file":
                 n = self._recv_file(conn, msg)
+                if n is None:
+                    files_fail += 1
+                    continue
                 files_ok += 1
                 bytes_ok += n
                 elapsed = max(time.time() - t0, 0.001)
@@ -136,6 +140,8 @@ class ReceiveServer:
             self.on_log(f"[!] Conexión perdida: {files_ok} copiados, "
                         f"{files_skip} saltados (el cliente puede reanudar)")
             return
+        if files_fail:
+            self.on_log(f"[!] {files_fail} archivos no se pudieron guardar (ver líneas anteriores)")
         self.on_log(f"[OK] Sesión: {files_ok} copiados, {files_skip} saltados, "
                     f"{bytes_ok / (1024 * 1024):.1f} MB")
 
@@ -166,26 +172,68 @@ class ReceiveServer:
         return offsets
 
     def _recv_file(self, conn, msg):
-        target = self._target(msg["folder"], msg["relpath"])
+        """Devuelve los bytes recibidos, o None si el archivo no se pudo guardar.
+
+        Un fallo local (antivirus, archivo bloqueado, ruta larga) no corta la
+        sesión: se consumen los datos para mantener el flujo y se sigue.
+        """
+        rel = msg["relpath"]
         size = int(msg["size"])
         mtime = float(msg["mtime"])
         offset = int(msg["offset"])
-        part = self._part(target, size, mtime)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if offset and (not part.exists() or part.stat().st_size != offset):
-            raise ValueError(f"parcial inconsistente: {msg['relpath']}")
-        # si falla a mitad, el parcial se conserva para reanudar
-        with open(part, "ab" if offset else "wb") as f:
-            remaining = size - offset
-            while remaining > 0:
-                chunk = protocol.recv_exact(conn, min(protocol.CHUNK, remaining))
-                if chunk is None:
-                    raise ConnectionError("conexión cerrada")
-                f.write(chunk)
-                remaining -= len(chunk)
-        os.utime(part, (mtime, mtime))
-        os.replace(part, target)
+        err = None
+        f = None
+        try:
+            target = self._target(msg["folder"], rel)
+            part = self._part(target, size, mtime)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if offset and (not part.exists() or part.stat().st_size != offset):
+                raise ValueError("parcial inconsistente")
+            f = open(part, "ab" if offset else "wb")
+        except Exception as e:
+            err = e
+        remaining = size - offset
+        while remaining > 0:
+            chunk = protocol.recv_exact(conn, min(protocol.CHUNK, remaining))
+            if chunk is None:
+                if f:
+                    f.close()  # el parcial se conserva para reanudar
+                raise ConnectionError("conexión cerrada")
+            remaining -= len(chunk)
+            if f:
+                try:
+                    f.write(chunk)
+                except OSError as e:
+                    err = e
+                    f.close()
+                    f = None
+        if f:
+            f.close()
+            try:
+                os.utime(part, (mtime, mtime))
+                self._replace(part, target)
+            except Exception as e:
+                err = e
+        if err:
+            self.on_log(f"[!] No se pudo guardar {rel}: {type(err).__name__}: {err}")
+            return None
         return size - offset
+
+    @staticmethod
+    def _replace(part, target):
+        # En Windows el antivirus puede tener el archivo abierto un instante, y un
+        # destino oculto/de solo lectura (p. ej. desktop.ini) rechaza el reemplazo.
+        for attempt in range(4):
+            try:
+                if sys.platform == "win32" and target.exists():
+                    import ctypes
+                    ctypes.windll.kernel32.SetFileAttributesW(str(target), 0x80)
+                os.replace(part, target)
+                return
+            except PermissionError:
+                if attempt == 3:
+                    raise
+                time.sleep(0.3)
 
     def _target(self, folder, relpath):
         return self.dest_root / _safe(folder) / _safe(relpath)

@@ -78,7 +78,7 @@ class SendClient:
 
             done = 0
             done_bytes = 0
-            copied = skipped = 0
+            copied = skipped = failed = 0
             t0 = time.time()
 
             def progress():
@@ -108,11 +108,19 @@ class SendClient:
                         continue
                     if not 0 <= offset <= size:
                         raise RuntimeError(f"offset inválido del receptor para {rel}")
-                    protocol.send_msg(sock, {
-                        "type": "file", "folder": label, "relpath": _norm(rel),
-                        "size": size, "mtime": mtime, "offset": offset,
-                    })
-                    with open(path, "rb") as f:
+                    try:
+                        f = open(path, "rb")
+                    except OSError as e:
+                        # bloqueado/ilegible: se avisa y se sigue, no es un corte de red
+                        self.on_log(f"[!] Omitido {rel}: {e}")
+                        failed += 1
+                        done += 1
+                        continue
+                    with f:
+                        protocol.send_msg(sock, {
+                            "type": "file", "folder": label, "relpath": _norm(rel),
+                            "size": size, "mtime": mtime, "offset": offset,
+                        })
                         if offset:
                             f.seek(offset)
                             self.on_log(f"[i] Reanudando {rel} desde {_human(offset)}")
@@ -134,9 +142,15 @@ class SendClient:
 
             # el acuse final confirma que el receptor guardó todo
             protocol.send_msg(sock, {"type": "done"})
-            if self._recv(sock).get("status") != "ok":
+            ack = self._recv(sock)
+            if ack.get("status") != "ok":
                 raise ConnectionError("el receptor no confirmó la recepción")
-            self.on_log(f"[OK] Terminado: {copied} copiados, {skipped} saltados")
+            failed += int(ack.get("failed", 0))
+            self.on_log(f"[OK] Terminado: {copied - int(ack.get('failed', 0))} copiados, "
+                        f"{skipped} saltados")
+            if failed:
+                self.on_log(f"[!] {failed} archivos con error: pulsa Iniciar de nuevo "
+                            f"para reintentarlos (detalle en el registro del receptor)")
         finally:
             try:
                 sock.close()

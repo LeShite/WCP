@@ -148,3 +148,39 @@ def test_damaged_destination_is_rebuilt(env):
     c, logs = send(port)
     assert c.ok and "1 copiados, 1 saltados" in logs[-1]
     assert (dest / "Documents" / "a.txt").read_bytes() == b"contenido completo"
+
+
+def test_locked_destination_does_not_drop_session(env, monkeypatch):
+    src, dest, port = env
+    for n in ("a.txt", "bad.txt", "z.txt"):
+        (src / "Documents" / n).write_bytes(n.encode() * 1000)
+    real = os.replace
+
+    def flaky(a, b):
+        if str(b).endswith("bad.txt"):
+            raise PermissionError("bloqueado por el antivirus")
+        return real(a, b)
+
+    monkeypatch.setattr(os, "replace", flaky)
+    monkeypatch.setattr("wcp.server.time.sleep", lambda s: None)
+    c, logs = send(port)
+    assert c.ok and not any("Reconectando" in m for m in logs)
+    assert (dest / "Documents" / "a.txt").exists() and (dest / "Documents" / "z.txt").exists()
+    assert not (dest / "Documents" / "bad.txt").exists()
+    assert any("1 archivos con error" in m for m in logs)
+
+
+def test_unreadable_source_is_skipped(env):
+    src, dest, port = env
+    (src / "Documents" / "ok.txt").write_bytes(b"ok")
+    locked = src / "Documents" / "locked.txt"
+    locked.write_bytes(b"x")
+    locked.chmod(0)
+    try:
+        c, logs = send(port)
+    finally:
+        locked.chmod(0o600)
+    if os.access(locked, os.R_OK) and any("Omitido" not in m for m in logs) and (dest / "Documents" / "locked.txt").exists():
+        pytest.skip("se ejecuta como root: chmod no bloquea")
+    assert c.ok and (dest / "Documents" / "ok.txt").exists()
+    assert any("Omitido" in m for m in logs) and not any("Reconectando" in m for m in logs)

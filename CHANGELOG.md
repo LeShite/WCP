@@ -2,6 +2,19 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [1.3.1] - 2026-10-20
+
+### Corregido
+- `WinError 10053` con reconexiones en bucle: un fallo local del receptor en un solo
+  archivo (antivirus, archivo bloqueado u oculto como `desktop.ini`, ruta larga) cerraba la
+  conexión y el emisor lo veía como corte de red. Ahora el receptor consume los datos de ese
+  archivo, registra `[!] No se pudo guardar <archivo>: <error>` y continúa; el renombrado
+  final se reintenta 4 veces y quita atributos de solo lectura/oculto en Windows.
+- Un archivo bloqueado o ilegible en el origen se omite con aviso en vez de abortar
+  y reintentar como si fuera un corte de red.
+- El resumen final indica cuántos archivos fallaron; al volver a pulsar Iniciar solo se reintentan esos.
+- Los errores del receptor ahora incluyen el tipo de excepción.
+
 ## [1.3.0] - 2026-10-20
 
 Robustez ante cortes de comunicación. **Cambia el protocolo (`WCP1` → `WCP2`)**:
