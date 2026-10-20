@@ -1,0 +1,13 @@
+WCP — Windows Copy Peer
+Copyright (c) 2026 Kodesoft
+
+Este producto se distribuye bajo licencia dual MIT OR Apache-2.0.
+El usuario puede elegir cualquiera de las dos.
+
+Actualmente WCP no incluye dependencias de terceros ni software
+desarrollado por The Apache Software Foundation. Todas las
+funcionalidades usan exclusivamente la biblioteca estándar de Python.
+
+Cualquier dependencia futura bajo Apache-2.0 deberá listarse aquí con
+nombre, versión y URL de su licencia, según lo exige la Sección 4(d)
+de Apache License 2.0.

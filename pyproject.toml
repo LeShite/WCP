@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wcp"
+version = "1.0.0"
+description = "Windows Copy Peer — copia carpetas de perfil entre PCs por LAN"
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE", "NOTICE"]
+authors = [{ name = "Kodesoft", email = "igomezv0921@gmail.com" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: Microsoft :: Windows",
+]
+
+[project.scripts]
+wcp = "wcp.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
