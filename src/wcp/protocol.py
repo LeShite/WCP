@@ -1,12 +1,25 @@
 """Protocolo de comunicación WCP sobre TCP."""
 import json
+import socket
 import struct
 
-MAGIC = b"WCP1"
+MAGIC = b"WCP2"
 DEFAULT_PORT = 8765
 DISCOVERY_PORT = 8766
 CHUNK = 1024 * 1024  # 1 MiB
 MAX_MSG = 16 * 1024 * 1024
+TIMEOUT = 30
+
+
+def set_keepalive(sock, idle=10, interval=5):
+    """Detecta cables/Wi-Fi caídos en ~20 s en vez de esperar al timeout."""
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    if hasattr(socket, "SIO_KEEPALIVE_VALS"):  # Windows
+        sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, idle * 1000, interval * 1000))
+    elif hasattr(socket, "TCP_KEEPIDLE"):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, interval)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
 
 
 def send_msg(sock, obj):
