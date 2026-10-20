@@ -112,7 +112,10 @@ class ReceiveServer:
         t0 = time.time()
 
         while True:
+            # keepalive detecta un emisor caído; aquí solo se espera una posible decisión del usuario
+            conn.settimeout(protocol.IDLE_TIMEOUT)
             msg = protocol.recv_msg(conn)
+            conn.settimeout(protocol.TIMEOUT)
             if msg is None:
                 break
             typ = msg.get("type")
@@ -151,7 +154,8 @@ class ReceiveServer:
         return target.with_name(f"{target.name}.{size}.{int(mtime * 1000)}.wcp-part")
 
     def _plan(self, msg):
-        """Por archivo: -1 = ya está completo; n >= 0 = enviar desde el byte n."""
+        """Por archivo: -1 = ya está completo; -2 = existe y es distinto (decide el
+        emisor); n >= 0 = enviar desde el byte n."""
         for folder, rel in msg.get("dirs", []):
             self._target(folder, rel).mkdir(parents=True, exist_ok=True)
         offsets = []
@@ -162,6 +166,8 @@ class ReceiveServer:
                 if st.st_size == size and abs(st.st_mtime - mtime) < 2:
                     offsets.append(-1)
                     continue
+                offsets.append(-2)
+                continue
             part = self._part(target, size, mtime)
             if target.parent.is_dir():
                 for old in target.parent.glob(glob.escape(target.name) + ".*.wcp-part"):

@@ -287,7 +287,8 @@ class App:
                 f"{_human(int(rate))}/s"
             )
 
-        self.client = SendClient(host, port, pin, folders, log, prog)
+        self.client = SendClient(host, port, pin, folders, log, prog,
+                                 on_conflict=self._ask_conflict)
 
         def runner():
             try:
@@ -296,6 +297,42 @@ class App:
                 self.root.after(0, self._send_done)
 
         threading.Thread(target=runner, daemon=True).start()
+
+    def _ask_conflict(self, name):
+        """Se llama desde el hilo de envío: muestra el diálogo en el hilo de Tk y espera."""
+        done = threading.Event()
+        result = {"choice": "cancel", "all": False}
+
+        def show():
+            win = tk.Toplevel(self.root)
+            win.title("Archivo existente")
+            win.transient(self.root)
+            win.resizable(False, False)
+            ttk.Label(win, text="El archivo ya existe en el destino y es distinto:",
+                      padding=(12, 12, 12, 2)).pack(anchor="w")
+            ttk.Label(win, text=name, font=("Segoe UI", 10, "bold"), wraplength=420,
+                      padding=(12, 0, 12, 8)).pack(anchor="w")
+            apply_all = tk.BooleanVar(value=False)
+            ttk.Checkbutton(win, text="Aplicar a todos los siguientes",
+                            variable=apply_all).pack(anchor="w", padx=12)
+
+            def pick(choice):
+                result["choice"] = choice
+                result["all"] = apply_all.get()
+                win.destroy()
+
+            bar = ttk.Frame(win, padding=12)
+            bar.pack(fill="x")
+            for text, choice in (("Omitir", "skip"), ("Sobrescribir", "overwrite"),
+                                 ("Cancelar", "cancel")):
+                ttk.Button(bar, text=text, command=lambda c=choice: pick(c)).pack(side="left", padx=4)
+            win.protocol("WM_DELETE_WINDOW", lambda: pick("cancel"))
+            win.grab_set()
+            win.bind("<Destroy>", lambda e: done.set() if e.widget is win else None)
+
+        self.root.after(0, show)
+        done.wait()
+        return result["choice"], result["all"]
 
     def _send_done(self):
         ok = self.client.ok

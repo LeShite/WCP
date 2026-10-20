@@ -9,6 +9,7 @@ DISCOVERY_PORT = 8766
 CHUNK = 1024 * 1024  # 1 MiB
 MAX_MSG = 16 * 1024 * 1024
 TIMEOUT = 30
+IDLE_TIMEOUT = 600  # entre mensajes: el emisor puede estar esperando una decisión del usuario
 
 
 def tune_socket(sock, idle=10, interval=5):

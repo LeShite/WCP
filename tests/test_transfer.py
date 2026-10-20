@@ -184,3 +184,39 @@ def test_unreadable_source_is_skipped(env):
         pytest.skip("se ejecuta como root: chmod no bloquea")
     assert c.ok and (dest / "Documents" / "ok.txt").exists()
     assert any("Omitido" in m for m in logs) and not any("Reconectando" in m for m in logs)
+
+
+def _conflict_env(env):
+    src, dest, port = env
+    f = src / "Documents" / "a.txt"
+    f.write_bytes(b"version 1")
+    assert send(port)[0].ok
+    f.write_bytes(b"version 2 distinta")  # ahora difiere del destino
+    return f, dest / "Documents" / "a.txt", port
+
+
+def run_client(port, on_conflict):
+    logs = []
+    c = SendClient("127.0.0.1", port, "1", ["Documents"], logs.append, lambda *a: None,
+                   on_conflict=on_conflict)
+    c.run()
+    return c, logs
+
+
+def test_conflict_skip(env):
+    f, out, port = _conflict_env(env)
+    asked = []
+    c, _ = run_client(port, lambda n: asked.append(n) or ("skip", False))
+    assert c.ok and asked == ["Documents/a.txt"] and out.read_bytes() == b"version 1"
+
+
+def test_conflict_overwrite_and_apply_all(env):
+    f, out, port = _conflict_env(env)
+    c, _ = run_client(port, lambda n: ("overwrite", True))
+    assert c.ok and out.read_bytes() == b"version 2 distinta"
+
+
+def test_conflict_cancel(env):
+    f, out, port = _conflict_env(env)
+    c, _ = run_client(port, lambda n: ("cancel", False))
+    assert not c.ok and out.read_bytes() == b"version 1"

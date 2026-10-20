@@ -10,13 +10,17 @@ BATCH = 2000  # archivos por plan: un viaje de ida y vuelta por lote, no por arc
 
 
 class SendClient:
-    def __init__(self, host, port, pin, folders, on_log, on_progress):
+    def __init__(self, host, port, pin, folders, on_log, on_progress, on_conflict=None):
         self.host = host
         self.port = int(port)
         self.pin = pin
         self.folders = folders
         self.on_log = on_log
         self.on_progress = on_progress
+        # on_conflict(nombre) -> ("skip"|"overwrite"|"cancel", aplicar_a_todos); sin él se sobrescribe
+        self.on_conflict = on_conflict
+        self._decisions = {}
+        self._all = None
         self.ok = False
         self._stop = False
         self._sent = 0
@@ -44,6 +48,21 @@ class SendClient:
                     self._wait(min(2 ** failures, 15))
         except Exception as e:
             self.on_log(f"[ERROR] {e}")
+
+    def _decide(self, label, rel):
+        key = (label, _norm(rel))
+        if self._all:
+            return self._all
+        if key not in self._decisions:  # se recuerda: una reconexión no vuelve a preguntar
+            choice, apply_all = ("overwrite", False)
+            if self.on_conflict:
+                choice, apply_all = self.on_conflict(f"{label}/{key[1]}")
+            if choice == "cancel":
+                raise RuntimeError("cancelado por el usuario")
+            if apply_all:
+                self._all = choice
+            self._decisions[key] = choice
+        return self._decisions[key]
 
     def _wait(self, secs):
         end = time.time() + secs
@@ -101,6 +120,8 @@ class SendClient:
                 for (kind, label, root, rel, path, size, mtime), offset in zip(files, offsets):
                     if self._stop:
                         raise RuntimeError("cancelado por el usuario")
+                    if offset == -2:  # existe y es distinto en el destino
+                        offset = -1 if self._decide(label, rel) == "skip" else 0
                     if offset == -1:
                         skipped += 1
                         done += 1

@@ -2,6 +2,18 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [1.5.0] - 2026-10-20
+
+### Añadido
+- Si un archivo ya existe en el destino y es distinto, una ventana emergente pregunta
+  **Omitir / Sobrescribir / Cancelar**, con la casilla "Aplicar a todos los siguientes".
+  La decisión se recuerda: una reconexión no vuelve a preguntar. Sin interfaz se sobrescribe.
+- El receptor espera hasta 10 min entre mensajes (antes 30 s) para dar tiempo a decidir;
+  el keepalive TCP sigue detectando un emisor caído.
+
+### Eliminado
+- El filtro de `WCP*.exe` de 1.4.0: lo sustituye la ventana de conflicto.
+
 ## [1.4.0] - 2026-10-20
 
 ### Cambiado
