@@ -1,27 +1,80 @@
-name: build-exe
+name: Build WCP.exe
+
 on:
   push:
-    tags: ["v*"]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  exe:
+  build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - run: pip install . pyinstaller
-      - run: pyinstaller --onefile --windowed --name WCP run_wcp.pyw
-      - uses: actions/upload-artifact@v4
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Generate version info
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+          @"
+          VSVersionInfo(
+            ffi=FixedFileInfo(
+              filevers=(1,0,1,0), prodvers=(1,0,1,0),
+              mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1,
+              subtype=0x0, date=(0,0)
+            ),
+            kids=[
+              StringFileInfo([StringTable('040904B0', [
+                StringStruct('CompanyName', 'WCP Project'),
+                StringStruct('FileDescription', 'Windows Copy Peer'),
+                StringStruct('FileVersion', '1.0.1.0'),
+                StringStruct('InternalName', 'WCP'),
+                StringStruct('OriginalFilename', 'WCP.exe'),
+                StringStruct('ProductName', 'WCP - Windows Copy Peer'),
+                StringStruct('ProductVersion', '1.0.1.0')
+              ])]),
+              VarFileInfo([VarStruct('Translation', [1033, 1200])])
+            ]
+          )
+          "@ | Out-File -Encoding UTF8 build/version_info.txt
+
+      - name: Build executable
+        run: |
+          pyinstaller --onefile --windowed --name WCP --version-file build/version_info.txt run_wcp.pyw
+
+      - name: Generate SHA256
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist/WCP.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  WCP.exe" | Out-File -Encoding ASCII dist/WCP.exe.sha256
+          Write-Host "SHA256: $hash"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: WCP-exe
-          path: dist/WCP.exe
-      - if: startsWith(github.ref, 'refs/tags/')
+          path: |
+            dist/WCP.exe
+            dist/WCP.exe.sha256
+          retention-days: 90
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/WCP.exe
+          files: |
+            dist/WCP.exe
+            dist/WCP.exe.sha256
