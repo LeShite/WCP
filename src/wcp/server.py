@@ -1,4 +1,5 @@
 """Motor de recepción: escucha, autentica y escribe archivos en disco."""
+import glob
 import json
 import os
 import socket
@@ -87,7 +88,8 @@ class ReceiveServer:
             self.on_log("[.] Servidor detenido")
 
     def _handle(self, conn, addr):
-        conn.settimeout(120)
+        conn.settimeout(protocol.TIMEOUT)
+        protocol.set_keepalive(conn)
         magic = protocol.recv_exact(conn, 4)
         if magic != protocol.MAGIC:
             self.on_log("[!] Cliente no-WCP")
@@ -104,6 +106,7 @@ class ReceiveServer:
         self.on_log(f"[OK] Cliente '{hello.get('hostname','?')}' autenticado")
 
         files_ok = files_skip = 0
+        finished = False
         bytes_ok = 0
         t0 = time.time()
 
@@ -114,6 +117,7 @@ class ReceiveServer:
             typ = msg.get("type")
             if typ == "done":
                 protocol.send_msg(conn, {"status": "ok"})
+                finished = True
                 break
             if typ == "dir":
                 target = self._target(msg["folder"], msg["relpath"])
@@ -128,13 +132,24 @@ class ReceiveServer:
                 if target.exists():
                     st = target.stat()
                     if st.st_size == size and abs(st.st_mtime - mtime) < 2:
-                        self._drain(conn, size)
                         protocol.send_msg(conn, {"status": "skip"})
                         files_skip += 1
                         continue
+                # El parcial lleva size+mtime en el nombre: solo se reanuda
+                # si el origen no ha cambiado desde el intento anterior.
+                part = target.with_name(
+                    f"{target.name}.{size}.{int(mtime * 1000)}.wcp-part")
+                for old in target.parent.glob(glob.escape(target.name) + ".*.wcp-part"):
+                    if old != part:
+                        old.unlink(missing_ok=True)
+                offset = part.stat().st_size if part.exists() else 0
+                if offset > size:
+                    offset = 0
+                protocol.send_msg(conn, {
+                    "status": "resume" if offset else "ok", "offset": offset})
                 try:
-                    with open(target, "wb") as f:
-                        remaining = size
+                    with open(part, "ab" if offset else "wb") as f:
+                        remaining = size - offset
                         while remaining > 0:
                             chunk = protocol.recv_exact(
                                 conn, min(protocol.CHUNK, remaining))
@@ -142,28 +157,29 @@ class ReceiveServer:
                                 raise ConnectionError("conexión cerrada")
                             f.write(chunk)
                             remaining -= len(chunk)
-                    os.utime(target, (mtime, mtime))
+                    os.utime(part, (mtime, mtime))
+                    os.replace(part, target)
                     protocol.send_msg(conn, {"status": "ok"})
                     files_ok += 1
-                    bytes_ok += size
+                    bytes_ok += size - offset
                     elapsed = max(time.time() - t0, 0.001)
                     self.on_progress(files_ok, files_skip, bytes_ok,
                                      bytes_ok / elapsed)
                 except Exception as e:
-                    protocol.send_msg(conn, {"status": "error", "msg": str(e)})
+                    # el parcial se conserva para poder reanudar
+                    try:
+                        protocol.send_msg(conn, {"status": "error", "msg": str(e)})
+                    except Exception:
+                        pass
                     raise
                 continue
 
+        if not finished:
+            self.on_log(f"[!] Conexión perdida: {files_ok} copiados, "
+                        f"{files_skip} saltados (el cliente puede reanudar)")
+            return
         self.on_log(f"[OK] Sesión: {files_ok} copiados, {files_skip} saltados, "
                     f"{bytes_ok / (1024 * 1024):.1f} MB")
-
-    def _drain(self, conn, n):
-        remaining = n
-        while remaining > 0:
-            chunk = protocol.recv_exact(conn, min(protocol.CHUNK, remaining))
-            if chunk is None:
-                raise ConnectionError("conexión cerrada")
-            remaining -= len(chunk)
 
     def _target(self, folder, relpath):
         return self.dest_root / _safe(folder) / _safe(relpath)

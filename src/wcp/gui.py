@@ -276,7 +276,10 @@ class App:
         self.btn_send_stop.configure(state="normal")
         self.state["send"] = {"pct": 0, "text": "Conectando..."}
 
-        def log(m): self.send_q.put(m)
+        def log(m):
+            self.send_q.put(m)
+            if m.startswith("[~]"):  # reconexión: visible también en la barra de estado
+                self.state["send"]["text"] = m[4:]
         def prog(done, total, db, tb, rate):
             self.state["send"]["pct"] = 100.0 * db / max(tb, 1)
             self.state["send"]["text"] = (
@@ -295,10 +298,15 @@ class App:
         threading.Thread(target=runner, daemon=True).start()
 
     def _send_done(self):
+        ok = self.client.ok
         self.client = None
         self.btn_send.configure(state="normal")
         self.btn_send_stop.configure(state="disabled")
-        self.state["send"]["text"] = "Listo"
+        if ok:
+            self.state["send"]["pct"] = 100
+            self.state["send"]["text"] = "Completado ✔"
+        else:
+            self.state["send"]["text"] = "Interrumpido — pulsa Iniciar para reanudar"
 
     def _stop_send(self):
         if self.client:
