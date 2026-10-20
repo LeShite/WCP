@@ -55,9 +55,11 @@ def test_resume_partial_file(env):
     s.sendall(protocol.MAGIC)
     protocol.send_msg(s, {"type": "hello", "pin": "1"})
     assert protocol.recv_msg(s)["type"] == "hello_ok"
+    protocol.send_msg(s, {"type": "plan", "dirs": [], "files": [
+        ["Documents", "big.bin", st.st_size, st.st_mtime]]})
+    assert protocol.recv_msg(s)["offsets"] == [0]
     protocol.send_msg(s, {"type": "file", "folder": "Documents", "relpath": "big.bin",
-                          "size": st.st_size, "mtime": st.st_mtime})
-    assert protocol.recv_msg(s)["status"] == "ok"
+                          "size": st.st_size, "mtime": st.st_mtime, "offset": 0})
     s.sendall(f.read_bytes()[: protocol.CHUNK])
     time.sleep(0.3)
     s.close()
@@ -135,3 +137,14 @@ def test_wrong_pin_is_fatal_no_retry(env):
     c = SendClient("127.0.0.1", port, "bad", ["Documents"], logs.append, lambda *a: None)
     c.run()
     assert not c.ok and not any("Reconectando" in m for m in logs)
+
+
+def test_damaged_destination_is_rebuilt(env):
+    src, dest, port = env
+    (src / "Documents" / "a.txt").write_bytes(b"contenido completo")
+    (src / "Documents" / "b.txt").write_bytes(b"otro")
+    assert send(port)[0].ok
+    (dest / "Documents" / "a.txt").write_bytes(b"conten")  # paquete dañado/truncado
+    c, logs = send(port)
+    assert c.ok and "1 copiados, 1 saltados" in logs[-1]
+    assert (dest / "Documents" / "a.txt").read_bytes() == b"contenido completo"

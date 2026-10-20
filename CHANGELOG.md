@@ -18,6 +18,16 @@ las versiones 1.0.x y 1.2 no se entienden entre sí; actualizar ambos PCs.
 - Tests de transferencia: envío, salto de existentes, reanudación, origen cambiado,
   reconexión tras corte (proxy) y PIN incorrecto sin reintentos.
 
+### Rendimiento
+- Antes: ~0,8 MB/s en uso real; 1000 archivos de 10 KB tardaban más de 2 minutos.
+  Causas: dos `sendall` por mensaje (bloqueo Nagle + ACK retardado, ~40-200 ms por
+  mensaje) y un viaje de ida y vuelta por archivo.
+- Ahora: `TCP_NODELAY` y mensaje en un solo envío; el emisor manda un *plan* por lotes de
+  2000 archivos y el receptor responde cuáles faltan (`-1` = ya completo, `n` = desde el byte n);
+  luego se envía todo seguido sin acuses por archivo. Acuse final obligatorio.
+- Medido en loopback: 1000 archivos de 10 KB en 0,24 s (reenvío de lo ya copiado: 0,06 s).
+- Un archivo de destino dañado (tamaño/fecha distintos) se detecta y se reconstruye.
+
 ### Cambiado
 - Los archivos se escriben como `.wcp-part` y se renombran al terminar: nunca queda
   un archivo a medias con su nombre final.

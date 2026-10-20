@@ -11,8 +11,9 @@ MAX_MSG = 16 * 1024 * 1024
 TIMEOUT = 30
 
 
-def set_keepalive(sock, idle=10, interval=5):
-    """Detecta cables/Wi-Fi caídos en ~20 s en vez de esperar al timeout."""
+def tune_socket(sock, idle=10, interval=5):
+    """Sin Nagle, y keepalive: detecta cables/Wi-Fi caídos en ~20 s."""
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     if hasattr(socket, "SIO_KEEPALIVE_VALS"):  # Windows
         sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, idle * 1000, interval * 1000))
@@ -24,8 +25,8 @@ def set_keepalive(sock, idle=10, interval=5):
 
 def send_msg(sock, obj):
     data = json.dumps(obj).encode("utf-8")
-    sock.sendall(struct.pack("!I", len(data)))
-    sock.sendall(data)
+    # un solo envío: dos sendall seguidos provocan el bloqueo Nagle + ACK retardado
+    sock.sendall(struct.pack("!I", len(data)) + data)
 
 
 def recv_exact(sock, n):

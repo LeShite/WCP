@@ -89,7 +89,7 @@ class ReceiveServer:
 
     def _handle(self, conn, addr):
         conn.settimeout(protocol.TIMEOUT)
-        protocol.set_keepalive(conn)
+        protocol.tune_socket(conn)
         magic = protocol.recv_exact(conn, 4)
         if magic != protocol.MAGIC:
             self.on_log("[!] Cliente no-WCP")
@@ -119,59 +119,17 @@ class ReceiveServer:
                 protocol.send_msg(conn, {"status": "ok"})
                 finished = True
                 break
-            if typ == "dir":
-                target = self._target(msg["folder"], msg["relpath"])
-                target.mkdir(parents=True, exist_ok=True)
-                protocol.send_msg(conn, {"status": "ok"})
+            if typ == "plan":
+                offsets = self._plan(msg)
+                files_skip += offsets.count(-1)
+                protocol.send_msg(conn, {"offsets": offsets})
                 continue
             if typ == "file":
-                target = self._target(msg["folder"], msg["relpath"])
-                size = int(msg["size"])
-                mtime = float(msg.get("mtime", time.time()))
-                target.parent.mkdir(parents=True, exist_ok=True)
-                if target.exists():
-                    st = target.stat()
-                    if st.st_size == size and abs(st.st_mtime - mtime) < 2:
-                        protocol.send_msg(conn, {"status": "skip"})
-                        files_skip += 1
-                        continue
-                # El parcial lleva size+mtime en el nombre: solo se reanuda
-                # si el origen no ha cambiado desde el intento anterior.
-                part = target.with_name(
-                    f"{target.name}.{size}.{int(mtime * 1000)}.wcp-part")
-                for old in target.parent.glob(glob.escape(target.name) + ".*.wcp-part"):
-                    if old != part:
-                        old.unlink(missing_ok=True)
-                offset = part.stat().st_size if part.exists() else 0
-                if offset > size:
-                    offset = 0
-                protocol.send_msg(conn, {
-                    "status": "resume" if offset else "ok", "offset": offset})
-                try:
-                    with open(part, "ab" if offset else "wb") as f:
-                        remaining = size - offset
-                        while remaining > 0:
-                            chunk = protocol.recv_exact(
-                                conn, min(protocol.CHUNK, remaining))
-                            if chunk is None:
-                                raise ConnectionError("conexión cerrada")
-                            f.write(chunk)
-                            remaining -= len(chunk)
-                    os.utime(part, (mtime, mtime))
-                    os.replace(part, target)
-                    protocol.send_msg(conn, {"status": "ok"})
-                    files_ok += 1
-                    bytes_ok += size - offset
-                    elapsed = max(time.time() - t0, 0.001)
-                    self.on_progress(files_ok, files_skip, bytes_ok,
-                                     bytes_ok / elapsed)
-                except Exception as e:
-                    # el parcial se conserva para poder reanudar
-                    try:
-                        protocol.send_msg(conn, {"status": "error", "msg": str(e)})
-                    except Exception:
-                        pass
-                    raise
+                n = self._recv_file(conn, msg)
+                files_ok += 1
+                bytes_ok += n
+                elapsed = max(time.time() - t0, 0.001)
+                self.on_progress(files_ok, files_skip, bytes_ok, bytes_ok / elapsed)
                 continue
 
         if not finished:
@@ -180,6 +138,54 @@ class ReceiveServer:
             return
         self.on_log(f"[OK] Sesión: {files_ok} copiados, {files_skip} saltados, "
                     f"{bytes_ok / (1024 * 1024):.1f} MB")
+
+    @staticmethod
+    def _part(target, size, mtime):
+        # size+mtime en el nombre: solo se reanuda si el origen no ha cambiado
+        return target.with_name(f"{target.name}.{size}.{int(mtime * 1000)}.wcp-part")
+
+    def _plan(self, msg):
+        """Por archivo: -1 = ya está completo; n >= 0 = enviar desde el byte n."""
+        for folder, rel in msg.get("dirs", []):
+            self._target(folder, rel).mkdir(parents=True, exist_ok=True)
+        offsets = []
+        for folder, rel, size, mtime in msg["files"]:
+            target = self._target(folder, rel)
+            if target.exists():
+                st = target.stat()
+                if st.st_size == size and abs(st.st_mtime - mtime) < 2:
+                    offsets.append(-1)
+                    continue
+            part = self._part(target, size, mtime)
+            if target.parent.is_dir():
+                for old in target.parent.glob(glob.escape(target.name) + ".*.wcp-part"):
+                    if old != part:
+                        old.unlink(missing_ok=True)
+            off = part.stat().st_size if part.exists() else 0
+            offsets.append(off if off <= size else 0)
+        return offsets
+
+    def _recv_file(self, conn, msg):
+        target = self._target(msg["folder"], msg["relpath"])
+        size = int(msg["size"])
+        mtime = float(msg["mtime"])
+        offset = int(msg["offset"])
+        part = self._part(target, size, mtime)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if offset and (not part.exists() or part.stat().st_size != offset):
+            raise ValueError(f"parcial inconsistente: {msg['relpath']}")
+        # si falla a mitad, el parcial se conserva para reanudar
+        with open(part, "ab" if offset else "wb") as f:
+            remaining = size - offset
+            while remaining > 0:
+                chunk = protocol.recv_exact(conn, min(protocol.CHUNK, remaining))
+                if chunk is None:
+                    raise ConnectionError("conexión cerrada")
+                f.write(chunk)
+                remaining -= len(chunk)
+        os.utime(part, (mtime, mtime))
+        os.replace(part, target)
+        return size - offset
 
     def _target(self, folder, relpath):
         return self.dest_root / _safe(folder) / _safe(relpath)
