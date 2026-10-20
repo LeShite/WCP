@@ -2,6 +2,13 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [1.4.0] - 2026-10-20
+
+### Cambiado
+- El emisor omite los ejecutables de WCP (`WCP*.exe`, sin distinguir mayúsculas) con un aviso
+  en el registro. En el receptor, `WCP.exe` en uso no se puede sobrescribir (`WinError 5`).
+  No se filtran otros `.exe`: copiar instaladores es un uso legítimo.
+
 ## [1.3.1] - 2026-10-20
 
 ### Corregido

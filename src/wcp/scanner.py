@@ -43,6 +43,13 @@ def resolve_folder(name):
     return home / name
 
 
+def _is_wcp_exe(name):
+    # el propio WCP.exe (o "WCP (2).exe") suele estar en Descargas y, si está en uso
+    # en el receptor, Windows no deja sobrescribirlo
+    n = name.lower()
+    return n.startswith("wcp") and n.endswith(".exe")
+
+
 def walk(selected, on_log=None):
     """Genera tuples: (kind, label, root, rel, path, size, mtime)"""
     for label in selected:
@@ -59,6 +66,10 @@ def walk(selected, on_log=None):
                 yield ("dir", label, root, dp.relative_to(root), None, 0, 0)
             for fn in filenames:
                 if fn.startswith("."):
+                    continue
+                if _is_wcp_exe(fn):
+                    if on_log:
+                        on_log(f"[i] Omitido {fn} (ejecutable de WCP)")
                     continue
                 p = dp / fn
                 try:
