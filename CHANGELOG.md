@@ -2,7 +2,7 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
-## [1.2.0] - 2026-10-20
+## [1.3.0] - 2026-10-20
 
 Robustez ante cortes de comunicación. **Cambia el protocolo (`WCP1` → `WCP2`)**:
 las versiones 1.0.x y 1.2 no se entienden entre sí; actualizar ambos PCs.
