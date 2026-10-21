@@ -220,3 +220,23 @@ def test_conflict_cancel(env):
     f, out, port = _conflict_env(env)
     c, _ = run_client(port, lambda n: ("cancel", False))
     assert not c.ok and out.read_bytes() == b"version 1"
+
+
+def test_dest_map_routes_each_folder(tmp_path, monkeypatch):
+    src = tmp_path / "src"
+    (src / "Documents").mkdir(parents=True)
+    (src / "Documents" / "a.txt").write_bytes(b"hola")
+    monkeypatch.setattr(scanner, "resolve_folder", lambda name: src / name)
+    port = next(_ports)
+    mapped = tmp_path / "mis_docs"
+    srv = ReceiveServer(port, "1", tmp_path / "dest", lambda m: None, lambda *a: None,
+                        dest_map={"Documents": str(mapped)})
+    srv.start()
+    time.sleep(0.5)
+    try:
+        assert send(port)[0].ok
+    finally:
+        srv.stop()
+        time.sleep(1.2)
+    assert (mapped / "a.txt").read_bytes() == b"hola"
+    assert not (tmp_path / "dest" / "Documents").exists()

@@ -4,9 +4,13 @@ Copyright (c) 2026 Kodesoft
 Este producto se distribuye bajo licencia dual MIT OR Apache-2.0.
 El usuario puede elegir cualquiera de las dos.
 
-Actualmente WCP no incluye dependencias de terceros ni software
-desarrollado por The Apache Software Foundation. Todas las
-funcionalidades usan exclusivamente la biblioteca estándar de Python.
+WCP no incluye software desarrollado por The Apache Software Foundation.
+
+Dependencias de terceros:
+
+  - CustomTkinter 5.2+ (interfaz gráfica)
+    Copyright (c) 2023 Tom Schimansky
+    Licencia MIT — https://github.com/TomSchimansky/CustomTkinter/blob/master/LICENSE
 
 Cualquier dependencia futura bajo Apache-2.0 deberá listarse aquí con
 nombre, versión y URL de su licencia, según lo exige la Sección 4(d)

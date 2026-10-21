@@ -11,10 +11,12 @@ from . import protocol
 
 
 class ReceiveServer:
-    def __init__(self, port, pin, dest_root, on_log, on_progress):
+    def __init__(self, port, pin, dest_root, on_log, on_progress, dest_map=None):
         self.port = int(port)
         self.pin = pin
         self.dest_root = Path(dest_root)
+        # carpeta de origen ("Desktop", ...) -> carpeta destino; el resto va a dest_root/<carpeta>
+        self.dest_map = {k: Path(v) for k, v in (dest_map or {}).items() if v}
         self.on_log = on_log
         self.on_progress = on_progress
         self._sock = None
@@ -62,6 +64,8 @@ class ReceiveServer:
             self._sock = srv
             self.on_log(f"[OK] Escuchando en puerto {self.port}")
             self.on_log(f"[i] Destino: {self.dest_root}")
+            for name, path in self.dest_map.items():
+                self.on_log(f"[i]   {name} -> {path}")
             while not self._stop:
                 try:
                     conn, addr = srv.accept()
@@ -242,7 +246,8 @@ class ReceiveServer:
                 time.sleep(0.3)
 
     def _target(self, folder, relpath):
-        return self.dest_root / _safe(folder) / _safe(relpath)
+        base = self.dest_map.get(folder) or self.dest_root / _safe(folder)
+        return base / _safe(relpath)
 
 
 def _safe(s):

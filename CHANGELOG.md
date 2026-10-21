@@ -2,6 +2,18 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [1.6.0] - 2026-10-20
+
+### Añadido
+- Interfaz nueva con CustomTkinter (tema oscuro cálido, barra superior, tarjetas) y vista **Ajustes**.
+- **Carpetas de destino por defecto** en Ajustes: Escritorio, Descargas, Documentos, Música y Fotos.
+  Al recibir, cada carpeta del origen se guarda en la suya (o en una sola carpeta si se desactiva el interruptor).
+- El emisor también envía la carpeta **Música**.
+- Preferencias en `~/.wcp_config.json` (puerto por defecto, última IP, carpetas de destino).
+- **Ajustes → Apariencia e idioma**: color de interfaz (Oscuro cálido, Azul, Negro, Blanco, Verde, Morado) e idioma (Español / English). Se aplican al guardar; con un envío o recepción activos, al reiniciar.
+- Ajustes → Acerca de: licencias MIT y Apache 2.0, y un apartado reservado «Cuenta KODECOUNT» (aún sin función).
+- Dependencia nueva: `customtkinter`.
+
 ## [1.5.0] - 2026-10-20
 
 ### Añadido

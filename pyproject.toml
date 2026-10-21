@@ -4,10 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wcp"
-version = "1.5.0"
+version = "1.6.0"
 description = "Windows Copy Peer — copia carpetas de perfil entre PCs por LAN"
 readme = "README.md"
 requires-python = ">=3.8"
+dependencies = ["customtkinter>=5.2"]
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE", "NOTICE"]
 authors = [{ name = "Kodesoft", email = "igomezv0921@gmail.com" }]

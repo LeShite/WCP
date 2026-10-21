@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 
-FOLDERS = ["Desktop", "Documents", "Downloads", "Pictures"]
+FOLDERS = ["Desktop", "Documents", "Downloads", "Music", "Pictures"]
 
 
 def _win_known_folder(name):
@@ -15,6 +15,7 @@ def _win_known_folder(name):
         "Desktop": "Desktop",
         "Documents": "Personal",
         "Downloads": "{374DE290-123F-4565-9164-39C4925E467B}",
+        "Music": "My Music",
         "Pictures": "My Pictures",
     }
     key = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
