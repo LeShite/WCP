@@ -1,4 +1,5 @@
 """Motor de envío: escanea, conecta y empuja archivos al servidor."""
+import hashlib
 import socket
 import time
 from . import protocol
@@ -8,10 +9,13 @@ from .scanner import walk
 
 MAX_RETRIES = 5
 BATCH = 2000  # archivos por plan: un viaje de ida y vuelta por lote, no por archivo
+# con verificación cada lote se hashea en ambos extremos: lotes pequeños para no superar los timeouts
+VERIFY_BATCH_FILES = 200
+VERIFY_BATCH_BYTES = 4 * 1024 ** 3
 
 
 class SendClient:
-    def __init__(self, host, port, pin, folders, on_log, on_progress, on_conflict=None):
+    def __init__(self, host, port, pin, folders, on_log, on_progress, on_conflict=None, verify=False):
         self.host = host
         self.port = int(port)
         self.pin = pin
@@ -20,6 +24,7 @@ class SendClient:
         self.on_progress = on_progress
         # on_conflict(nombre) -> ("skip"|"overwrite"|"cancel", aplicar_a_todos); sin él se sobrescribe
         self.on_conflict = on_conflict
+        self.verify = verify  # comparar también el contenido (SHA-256) de lo que parece ya copiado
         self._decisions = {}
         self._all = None
         self.ok = False
@@ -55,6 +60,33 @@ class SendClient:
                     self._wait(min(2 ** failures, 15))
         except Exception as e:
             self.on_log(_("[ERROR] {}").format(e))
+
+    def _batches(self, items):
+        if not self.verify:
+            for i in range(0, len(items), BATCH):
+                yield items[i:i + BATCH]
+            return
+        batch, size = [], 0
+        for it in items:
+            batch.append(it)
+            size += it[5] if it[0] == "file" else 0
+            if len(batch) >= VERIFY_BATCH_FILES or size >= VERIFY_BATCH_BYTES:
+                yield batch
+                batch, size = [], 0
+        if batch:
+            yield batch
+
+    def _hash(self, path):
+        h = hashlib.sha256()
+        try:
+            with open(path, "rb") as f:
+                while chunk := f.read(protocol.CHUNK):
+                    if self._stop:
+                        raise RuntimeError(_("cancelado por el usuario"))
+                    h.update(chunk)
+        except OSError:
+            return None  # ilegible: ya se avisará al enviarlo; sin hash no se verifica
+        return h.hexdigest()
 
     def _decide(self, label, rel):
         key = (label, _norm(rel))
@@ -121,15 +153,22 @@ class SendClient:
                 self.on_progress(done, total_files, done_bytes, total_bytes,
                                  self._sent / max(time.time() - t0, 0.001))
 
-            for i in range(0, len(items), BATCH):
-                batch = items[i:i + BATCH]
+            for batch in self._batches(items):
                 files = [it for it in batch if it[0] == "file"]
+                entries = [[it[1], _norm(it[3]), it[5], it[6]] for it in files]
+                if self.verify:
+                    self.on_log(_("[i] Verificando contenido de {} archivos...").format(len(files)))
+                    for e, it in zip(entries, files):
+                        e.append(self._hash(it[4]))
                 protocol.send_msg(sock, {
                     "type": "plan",
                     "dirs": [[it[1], _norm(it[3])] for it in batch if it[0] == "dir"],
-                    "files": [[it[1], _norm(it[3]), it[5], it[6]] for it in files],
+                    "files": entries,
                 })
+                if self.verify:
+                    sock.settimeout(protocol.IDLE_TIMEOUT)  # el receptor también hashea
                 offsets = self._recv(sock).get("offsets")
+                sock.settimeout(protocol.TIMEOUT)
                 if not isinstance(offsets, list) or len(offsets) != len(files):
                     raise RuntimeError(_("plan inválido del receptor"))
 

@@ -12,6 +12,15 @@ Dependencias de terceros:
     Copyright (c) 2023 Tom Schimansky
     Licencia MIT — https://github.com/TomSchimansky/CustomTkinter/blob/master/LICENSE
 
+  - darkdetect (dependencia de CustomTkinter)
+    Copyright (c) 2019, Alberto Sottile
+    Licencia BSD-3-Clause — https://github.com/albertosottile/darkdetect/blob/master/LICENSE
+
+  - packaging (dependencia de CustomTkinter)
+    Copyright (c) Donald Stufft and individual contributors
+    Licencia Apache-2.0 OR BSD-2-Clause; se usa bajo BSD-2-Clause —
+    https://github.com/pypa/packaging/blob/main/LICENSE.BSD
+
 Cualquier dependencia futura bajo Apache-2.0 deberá listarse aquí con
 nombre, versión y URL de su licencia, según lo exige la Sección 4(d)
 de Apache License 2.0.

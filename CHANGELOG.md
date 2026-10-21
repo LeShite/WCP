@@ -36,7 +36,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - El receptor cuenta como "saltados" los archivos omitidos en el aviso de conflicto.
 - Si el receptor no responde a la solicitud de envío, el emisor no reintenta (cada intento abría otra ventana).
 
-## [Sin publicar] - rama ui-mejoras
+## [2.2.0] - 2026-10-21
+### Añadido
+- **Verificar contenido** (interruptor en Enviar, desactivado por defecto): compara también el SHA-256 de lo que
+  parece ya copiado (mismo tamaño y fecha). Un archivo dañado se reconstruye sin preguntar. Es más lento:
+  hashea en ambos extremos, en lotes de 200 archivos o 4 GB.
+- Si el emisor cuelga mientras el receptor muestra la ventana de confirmación, esa ventana se cierra sola.
+
 ### Interfaz
 - Registro con colores: errores `[!]`/`[ERROR]` en rojo, reconexiones `[~]` en el color de acento, avisos `[i]`/`[.]`/`[+]` atenuados.
 - El envío muestra el tiempo restante (ETA) junto a velocidad y tamaño.

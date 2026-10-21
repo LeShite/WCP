@@ -1,9 +1,11 @@
 """Motor de recepción: escucha, autentica y escribe archivos en disco."""
 import glob
+import hashlib
 import hmac
 import json
 import os
 import re
+import select
 import socket
 import sys
 import threading
@@ -128,7 +130,17 @@ class ReceiveServer:
         fallos[0] = 0
         nombre = hello.get("hostname", "?")
         if self.on_accept and addr[0] not in self._aprobados:
-            if not self.on_accept(nombre, addr[0]) or self._stop:
+            gone = threading.Event()  # se activa si el emisor cuelga mientras el usuario decide
+            fin = threading.Event()
+            threading.Thread(target=self._vigilar, args=(conn, gone, fin), daemon=True).start()
+            try:
+                aceptado = self.on_accept(nombre, addr[0], gone)
+            finally:
+                fin.set()
+            if gone.is_set():
+                self.on_log(_("[!] El emisor canceló la solicitud: {} ({})").format(nombre, addr[0]))
+                return
+            if not aceptado or self._stop:
                 protocol.send_msg(conn, {"type": "hello_err", "msg": "rechazado"})
                 self.on_log(_("[!] Envío rechazado: {} ({})").format(nombre, addr[0]))
                 return
@@ -169,8 +181,8 @@ class ReceiveServer:
             if typ == "plan":
                 offsets = self._plan(msg)
                 files_skip += offsets.count(-1)
-                for (_f, _r, size, _m), off in zip(msg["files"], offsets):
-                    pre += size if off == -1 else max(off, 0)
+                for entry, off in zip(msg["files"], offsets):
+                    pre += entry[2] if off == -1 else max(off, 0)
                 protocol.send_msg(conn, {"offsets": offsets})
                 progress()
                 continue
@@ -195,6 +207,21 @@ class ReceiveServer:
                     .format(files_ok, files_skip, bytes_ok / (1024 * 1024)))
 
     @staticmethod
+    def _vigilar(conn, gone, fin):
+        """Mientras se espera la decisión del usuario el emisor no envía nada: si el socket
+        se vuelve legible y vacío, colgó."""
+        while not fin.is_set():
+            try:
+                lectura, _w, _x = select.select([conn], [], [], 0.5)
+                if lectura:
+                    if conn.recv(1, socket.MSG_PEEK) == b"":
+                        gone.set()
+                    return
+            except (OSError, ValueError):
+                gone.set()
+                return
+
+    @staticmethod
     def _part(target, size, mtime):
         # size+mtime en el nombre: solo se reanuda si el origen no ha cambiado
         return target.with_name(f"{target.name}.{size}.{int(mtime * 1000)}.wcp-part")
@@ -205,11 +232,18 @@ class ReceiveServer:
         for folder, rel in msg.get("dirs", []):
             self._target(folder, rel).mkdir(parents=True, exist_ok=True)
         offsets = []
-        for folder, rel, size, mtime in msg["files"]:
+        for entry in msg["files"]:
+            folder, rel, size, mtime = entry[:4]
+            digest = entry[4] if len(entry) > 4 else None  # solo con "Verificar contenido"
             target = self._target(folder, rel)
             if target.exists():
                 st = target.stat()
                 if st.st_size == size and abs(st.st_mtime - mtime) < 2:
+                    if digest and _sha256(target) != digest:
+                        # mismo tamaño y fecha pero otro contenido: está dañado, se rehace sin preguntar
+                        self.on_log(_("[i] Archivo dañado, se reconstruye: {}").format(rel))
+                        offsets.append(0)
+                        continue
                     offsets.append(-1)
                     continue
                 offsets.append(-2)
@@ -290,6 +324,14 @@ class ReceiveServer:
     def _target(self, folder, relpath):
         base = self.dest_map.get(folder) or self.dest_root / _safe(folder)
         return base / _safe(relpath)
+
+
+def _sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(protocol.CHUNK):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _safe(s):

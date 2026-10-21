@@ -259,7 +259,7 @@ def _server(tmp_path, monkeypatch, **kw):
 def test_receiver_can_reject(tmp_path, monkeypatch):
     asked = []
     srv, port, logs, _p = _server(tmp_path, monkeypatch,
-                                  on_accept=lambda h, ip: asked.append(ip) or False)
+                                  on_accept=lambda h, ip, gone: asked.append(ip) or False)
     try:
         c, clogs = send(port)
     finally:
@@ -273,7 +273,7 @@ def test_receiver_can_reject(tmp_path, monkeypatch):
 def test_accept_is_remembered_per_ip(tmp_path, monkeypatch):
     asked = []
     srv, port, logs, _p = _server(tmp_path, monkeypatch,
-                                  on_accept=lambda h, ip: asked.append(ip) or True)
+                                  on_accept=lambda h, ip, gone: asked.append(ip) or True)
     try:
         assert send(port)[0].ok and send(port)[0].ok
     finally:
@@ -369,13 +369,61 @@ def test_unanswered_confirmation_does_not_retry(tmp_path, monkeypatch):
     asked = []
     port = next(_ports)
     srv = ReceiveServer(port, "1", tmp_path / "dest", lambda m: None, lambda *a: None,
-                        on_accept=lambda h, ip: asked.append(h) or time.sleep(2.5) or True)
+                        on_accept=lambda h, ip, gone: asked.append(h) or time.sleep(2.5) or True)
     srv.start()
     time.sleep(0.5)
     try:
         c, logs = send(port)
         assert not c.ok and any("no respondió" in m for m in logs)
         assert not any("Reconectando" in m for m in logs) and len(asked) == 1
+    finally:
+        srv.stop()
+        time.sleep(1.2)
+
+
+def test_verify_rebuilds_corrupt_file_same_size_and_mtime(env):
+    src, dest, port = env
+    f = src / "Documents" / "a.bin"
+    f.write_bytes(b"A" * 5000)
+    assert send(port)[0].ok
+    out = dest / "Documents" / "a.bin"
+    st = out.stat()
+    out.write_bytes(b"B" * 5000)  # corrupto: mismo tamaño...
+    os.utime(out, (st.st_mtime, st.st_mtime))  # ...y misma fecha
+    c, logs = send(port)  # sin verificar no lo detecta
+    assert c.ok and out.read_bytes() == b"B" * 5000
+    logs = []
+    c = SendClient("127.0.0.1", port, "1", ["Documents"], logs.append, lambda *a: None, verify=True)
+    c.run()
+    assert c.ok and out.read_bytes() == b"A" * 5000
+    assert any("dañado" in m for m in logs) or any("1 copiados" in m for m in logs)
+
+
+def test_verify_skips_identical_files(env):
+    src, dest, port = env
+    (src / "Documents" / "a.bin").write_bytes(b"A" * 5000)
+    assert send(port)[0].ok
+    logs = []
+    c = SendClient("127.0.0.1", port, "1", ["Documents"], logs.append, lambda *a: None, verify=True)
+    c.run()
+    assert c.ok and "0 copiados, 1 saltados" in logs[-1]
+
+
+def test_orphan_confirmation_is_detected(tmp_path):
+    seen = {}
+    port = next(_ports)
+    srv = ReceiveServer(port, "1", tmp_path / "dest", lambda m: None, lambda *a: None,
+                        on_accept=lambda h, ip, gone: seen.update(gone=gone.wait(5)) or False)
+    srv.start()
+    time.sleep(0.5)
+    try:
+        s = socket.create_connection(("127.0.0.1", port))
+        s.sendall(protocol.MAGIC)
+        protocol.send_msg(s, {"type": "hello", "pin": "1", "hostname": "x"})
+        time.sleep(0.5)
+        s.close()  # el emisor desiste mientras el usuario decide
+        time.sleep(1.5)
+        assert seen.get("gone") is True
     finally:
         srv.stop()
         time.sleep(1.2)

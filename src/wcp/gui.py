@@ -393,6 +393,10 @@ class App:
             Check(card, f"{_nombre_carpeta(name)}   ·   {path}   [{estado}]", var).pack(
                 anchor="w", padx=24, pady=(0, 24 if i == len(FOLDERS) - 1 else 10))
 
+        self.verify_var = ctk.BooleanVar(value=False)
+        Switch(box, _("Verificar contenido de lo ya copiado (más lento)"), self.verify_var).pack(
+            anchor="w", pady=(0, 12))
+
         bar = ctk.CTkFrame(box, fg_color="transparent")
         bar.pack(fill="x", pady=(0, 12))
         self.btn_send = Btn(bar, _("Iniciar envío"), self._start_send, icono="▶", height=45, ancho=170)
@@ -570,7 +574,7 @@ class App:
             host=self.host_s.get(), port_s=self.port_s.get(), pin_s=self.pin_s.get(),
             folders={n: v.get() for n, v in self.folder_vars.items()},
             port_r=self.port_r.get(), pin_r=self.pin_r.get(), dest=self.dest_r.get(),
-            usar=self.usar_defecto.get())
+            usar=self.usar_defecto.get(), verify=self.verify_var.get())
         aplicar_preferencias()
         for w in self.root.winfo_children():
             if not isinstance(w, Toplevel):  # un diálogo abierto debe seguir esperando respuesta
@@ -586,6 +590,7 @@ class App:
         self.pin_s.set(snap["pin_s"])
         for n, v in snap["folders"].items():
             self.folder_vars[n].set(v)
+        self.verify_var.set(snap["verify"])
         self.port_r.set(snap["port_r"])
         self.pin_r.set(snap["pin_r"])
         self.dest_r.set_enabled(True)  # un campo desactivado no admite escritura
@@ -717,7 +722,7 @@ class App:
                              eta=_eta(tb - db, rate))
 
         self.client = SendClient(host, port, pin, folders, log, prog,
-                                 on_conflict=self._ask_conflict)
+                                 on_conflict=self._ask_conflict, verify=self.verify_var.get())
 
         def runner():
             try:
@@ -727,7 +732,7 @@ class App:
 
         threading.Thread(target=runner, daemon=True).start()
 
-    def _dialogo(self, titulo, texto, nombre, botones, casilla=None, defecto=None):
+    def _dialogo(self, titulo, texto, nombre, botones, casilla=None, defecto=None, cerrar=None):
         """Muestra un diálogo desde cualquier hilo y espera.
         botones: [(texto, valor, tipo)]. Devuelve (valor elegido, casilla marcada)."""
         done = threading.Event()
@@ -757,6 +762,15 @@ class App:
                 Btn(bar, t, lambda v=valor: pick(v), tipo=tipo, ancho=110).pack(
                     side="left", padx=(0, 8))
             win.protocol("WM_DELETE_WINDOW", lambda: pick(defecto))
+            if cerrar is not None:  # el otro extremo colgó: la ventana ya no tiene objeto
+                def vigilar():
+                    if not win.winfo_exists():
+                        return
+                    if cerrar.is_set():
+                        pick(defecto)
+                    else:
+                        win.after(300, vigilar)
+                win.after(300, vigilar)
             win.lift()
             win.after(100, win.grab_set)  # CTkToplevel aún no es visible al crearse
             win.bind("<Destroy>", lambda e: done.set() if e.widget is win else None)
@@ -772,10 +786,11 @@ class App:
              (_("Cancelar"), "cancel", "secondary")],
             casilla=_("Aplicar a todos los siguientes"), defecto="cancel")
 
-    def _ask_accept(self, host, ip):
+    def _ask_accept(self, host, ip, gone=None):
         elegido, _todo = self._dialogo(
             _("Solicitud de envío"), _("Este equipo quiere enviarte archivos:"), f"{host} ({ip})",
-            [(_("Aceptar"), True, "primary"), (_("Rechazar"), False, "secondary")], defecto=False)
+            [(_("Aceptar"), True, "primary"), (_("Rechazar"), False, "secondary")], defecto=False,
+            cerrar=gone)
         return elegido
 
     def _send_done(self):

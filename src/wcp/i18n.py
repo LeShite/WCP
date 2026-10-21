@@ -4,6 +4,10 @@ _lang = "es"
 
 # Traducciones al inglés (clave = texto en español)
 EN = {
+    "Verificar contenido de lo ya copiado (más lento)": "Verify content of already copied files (slower)",
+    "[i] Verificando contenido de {} archivos...": "[i] Verifying content of {} files...",
+    "[i] Archivo dañado, se reconstruye: {}": "[i] Damaged file, rebuilding: {}",
+    "[!] El emisor canceló la solicitud: {} ({})": "[!] The sender cancelled the request: {} ({})",
     "Demasiados intentos, espera un minuto": "Too many attempts, wait a minute",
     "[!] Demasiados intentos desde {}": "[!] Too many attempts from {}",
     "El receptor no respondió a la solicitud": "The receiver did not answer the request",
