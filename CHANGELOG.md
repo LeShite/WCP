@@ -2,6 +2,26 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [2.2.0] - 2026-10-21
+### Añadido
+- **Verificar contenido** (interruptor en Enviar, desactivado por defecto): compara también el SHA-256 de lo que
+  parece ya copiado (mismo tamaño y fecha). Un archivo dañado se reconstruye sin preguntar. Es más lento:
+  hashea en ambos extremos, en lotes de 200 archivos o 4 GB.
+- Si el emisor cuelga mientras el receptor muestra la ventana de confirmación, esa ventana se cierra sola.
+
+### Interfaz
+- Registro con colores: errores `[!]`/`[ERROR]` en rojo, reconexiones `[~]` en el color de acento, avisos `[i]`/`[.]`/`[+]` atenuados.
+- El envío muestra el tiempo restante (ETA) junto a velocidad y tamaño.
+- El estado se pinta en verde al completar y en rojo al interrumpirse.
+- Botones para copiar la IP y el PIN en la pestaña Recibir.
+
+## [2.1.1] - 2026-10-21
+### Corregido
+- Seguridad: `_safe()` ya no deja pasar rutas con unidad (`C:...`) que escapaban de la carpeta destino en Windows.
+- Seguridad: bloqueo de 60 s tras 5 PIN incorrectos seguidos desde una IP, comparación del PIN en tiempo constante y PIN generado con `secrets`.
+- El receptor cuenta como "saltados" los archivos omitidos en el aviso de conflicto.
+- Si el receptor no responde a la solicitud de envío, el emisor no reintenta (cada intento abría otra ventana).
+
 ## [2.1.0] - 2026-10-20
 
 ### Añadido
@@ -28,27 +48,6 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - **Ajustes → Apariencia e idioma**: color de interfaz (Oscuro cálido, Azul, Negro, Blanco, Verde, Morado) e idioma (Español / English). Se aplican al guardar; con un envío o recepción activos, al reiniciar.
 - Ajustes → Acerca de: licencias MIT y Apache 2.0, y un apartado reservado «Cuenta KODECOUNT» (aún sin función).
 - Dependencia nueva: `customtkinter`.
-
-## [2.1.1] - 2026-10-21
-### Corregido
-- Seguridad: `_safe()` ya no deja pasar rutas con unidad (`C:...`) que escapaban de la carpeta destino en Windows.
-- Seguridad: bloqueo de 60 s tras 5 PIN incorrectos seguidos desde una IP, comparación del PIN en tiempo constante y PIN generado con `secrets`.
-- El receptor cuenta como "saltados" los archivos omitidos en el aviso de conflicto.
-- Si el receptor no responde a la solicitud de envío, el emisor no reintenta (cada intento abría otra ventana).
-
-## [2.2.0] - 2026-10-21
-### Añadido
-- **Verificar contenido** (interruptor en Enviar, desactivado por defecto): compara también el SHA-256 de lo que
-  parece ya copiado (mismo tamaño y fecha). Un archivo dañado se reconstruye sin preguntar. Es más lento:
-  hashea en ambos extremos, en lotes de 200 archivos o 4 GB.
-- Si el emisor cuelga mientras el receptor muestra la ventana de confirmación, esa ventana se cierra sola.
-
-### Interfaz
-- Registro con colores: errores `[!]`/`[ERROR]` en rojo, reconexiones `[~]` en el color de acento, avisos `[i]`/`[.]`/`[+]` atenuados.
-- El envío muestra el tiempo restante (ETA) junto a velocidad y tamaño.
-- El estado se pinta en verde al completar y en rojo al interrumpirse.
-- Botones para copiar la IP y el PIN en la pestaña Recibir.
-
 
 ## [1.5.0] - 2026-10-20
 
