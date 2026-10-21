@@ -240,3 +240,67 @@ def test_dest_map_routes_each_folder(tmp_path, monkeypatch):
         time.sleep(1.2)
     assert (mapped / "a.txt").read_bytes() == b"hola"
     assert not (tmp_path / "dest" / "Documents").exists()
+
+
+def _server(tmp_path, monkeypatch, **kw):
+    src = tmp_path / "src"
+    (src / "Documents").mkdir(parents=True, exist_ok=True)
+    (src / "Documents" / "a.txt").write_bytes(b"hola mundo")
+    monkeypatch.setattr(scanner, "resolve_folder", lambda name: src / name)
+    port = next(_ports)
+    logs, progs = [], []
+    srv = ReceiveServer(port, "1", tmp_path / "dest", logs.append,
+                        lambda *a: progs.append(a), **kw)
+    srv.start()
+    time.sleep(0.5)
+    return srv, port, logs, progs
+
+
+def test_receiver_can_reject(tmp_path, monkeypatch):
+    asked = []
+    srv, port, logs, _p = _server(tmp_path, monkeypatch,
+                                  on_accept=lambda h, ip: asked.append(ip) or False)
+    try:
+        c, clogs = send(port)
+    finally:
+        srv.stop()
+        time.sleep(1.2)
+    assert not c.ok and asked == ["127.0.0.1"]
+    assert not (tmp_path / "dest" / "Documents" / "a.txt").exists()
+    assert not any("Reconectando" in m for m in clogs)  # rechazo = fin, no reintento
+
+
+def test_accept_is_remembered_per_ip(tmp_path, monkeypatch):
+    asked = []
+    srv, port, logs, _p = _server(tmp_path, monkeypatch,
+                                  on_accept=lambda h, ip: asked.append(ip) or True)
+    try:
+        assert send(port)[0].ok and send(port)[0].ok
+    finally:
+        srv.stop()
+        time.sleep(1.2)
+    assert asked == ["127.0.0.1"]
+
+
+def test_receiver_progress_reaches_100(tmp_path, monkeypatch):
+    srv, port, logs, progs = _server(tmp_path, monkeypatch)
+    try:
+        assert send(port)[0].ok
+    finally:
+        srv.stop()
+        time.sleep(1.2)
+    pcts = [p[4] for p in progs]
+    assert pcts[-1] == 100.0 and all(p is None or 0 <= p <= 100 for p in pcts)
+
+
+def test_engine_logs_follow_language(tmp_path, monkeypatch):
+    from wcp import i18n
+    srv, port, logs, _p = _server(tmp_path, monkeypatch)
+    i18n.set_lang("en")
+    try:
+        c, clogs = send(port)
+    finally:
+        i18n.set_lang("es")
+        srv.stop()
+        time.sleep(1.2)
+    assert c.ok and any("Connected and authenticated" in m for m in clogs)

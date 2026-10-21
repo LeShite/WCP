@@ -30,3 +30,7 @@ def test_every_theme_defines_the_same_colors():
     claves = set(TEMAS["dark_warm"][2])
     assert all(set(t[2]) == claves for t in TEMAS.values())
     assert {"dark_blue", "black", "light"} <= set(TEMAS)
+
+
+def test_confirm_receive_defaults_on(tmp_path):
+    assert ConfigEngine(tmp_path / "c.json").config["confirm_receive"] is True

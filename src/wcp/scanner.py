@@ -3,6 +3,8 @@ import os
 import sys
 from pathlib import Path
 
+from .i18n import _
+
 FOLDERS = ["Desktop", "Documents", "Downloads", "Music", "Pictures"]
 
 
@@ -50,7 +52,7 @@ def walk(selected, on_log=None):
         root = resolve_folder(label)
         if not root.is_dir():
             if on_log:
-                on_log(f"[!] No existe: {root}")
+                on_log(_("[!] No existe: {}").format(root))
             continue
         for dirpath, dirnames, filenames in os.walk(root):
             original_dirs = list(dirnames)

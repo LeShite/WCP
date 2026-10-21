@@ -2,6 +2,21 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [2.1.0] - 2026-10-20
+
+### Añadido
+- **Confirmación antes de recibir**: una ventana pregunta Aceptar / Rechazar cuando alguien con el PIN correcto
+  quiere enviarte archivos. La respuesta se recuerda por IP mientras la recepción siga activa; se puede
+  desactivar en Ajustes → Red. El emisor espera hasta 10 min la respuesta y **Detener** lo interrumpe.
+- **Barra de progreso al recibir**. El emisor ahora anuncia el total en el saludo (campos opcionales:
+  compatible con versiones anteriores, que simplemente no muestran porcentaje).
+
+### Cambiado
+- El idioma y el color se aplican al instante, también con un envío o una recepción en curso: se
+  conservan campos, registros y estado.
+- Los mensajes del motor de envío y recepción siguen el idioma elegido (antes siempre español).
+- Un receptor 2.1 con confirmación activa puede hacer esperar más de 30 s a un emisor anterior, que se desconectará.
+
 ## [2.0.0] - 2026-10-20
 
 ### Añadido

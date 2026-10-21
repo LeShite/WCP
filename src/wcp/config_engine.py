@@ -12,6 +12,7 @@ def defaults():
     return {
         "language": "es",         # "es" | "en"
         "theme": "dark_warm",     # clave de gui.TEMAS
+        "confirm_receive": True,  # pedir permiso antes de aceptar un envío entrante
         "default_port": protocol.DEFAULT_PORT,
         "last_ip": "",
         # carpeta donde el receptor guarda lo que llega de cada carpeta del origen

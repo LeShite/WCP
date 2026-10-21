@@ -8,15 +8,19 @@ import threading
 import time
 from pathlib import Path
 from . import protocol
+from .i18n import _
 
 
 class ReceiveServer:
-    def __init__(self, port, pin, dest_root, on_log, on_progress, dest_map=None):
+    def __init__(self, port, pin, dest_root, on_log, on_progress, dest_map=None, on_accept=None):
         self.port = int(port)
         self.pin = pin
         self.dest_root = Path(dest_root)
         # carpeta de origen ("Desktop", ...) -> carpeta destino; el resto va a dest_root/<carpeta>
         self.dest_map = {k: Path(v) for k, v in (dest_map or {}).items() if v}
+        # on_accept(hostname, ip) -> bool: el usuario decide; se recuerda por IP mientras el servidor siga activo
+        self.on_accept = on_accept
+        self._aprobados = set()
         self.on_log = on_log
         self.on_progress = on_progress
         self._sock = None
@@ -62,8 +66,8 @@ class ReceiveServer:
             srv.listen(1)
             srv.settimeout(1.0)
             self._sock = srv
-            self.on_log(f"[OK] Escuchando en puerto {self.port}")
-            self.on_log(f"[i] Destino: {self.dest_root}")
+            self.on_log(_("[OK] Escuchando en puerto {}").format(self.port))
+            self.on_log(_("[i] Destino: {}").format(self.dest_root))
             for name, path in self.dest_map.items():
                 self.on_log(f"[i]   {name} -> {path}")
             while not self._stop:
@@ -73,31 +77,31 @@ class ReceiveServer:
                     continue
                 except OSError:
                     break
-                self.on_log(f"[+] Conexión de {addr[0]}")
+                self.on_log(_("[+] Conexión de {}").format(addr[0]))
                 try:
                     self._handle(conn, addr)
                 except Exception as e:
-                    self.on_log(f"[!] Error: {type(e).__name__}: {e}")
+                    self.on_log(_("[!] Error: {}: {}").format(type(e).__name__, e))
                 finally:
                     try:
                         conn.close()
                     except Exception:
                         pass
         except Exception as e:
-            self.on_log(f"[ERROR] Servidor: {e}")
+            self.on_log(_("[ERROR] Servidor: {}").format(e))
         finally:
             try:
                 self._sock.close()
             except Exception:
                 pass
-            self.on_log("[.] Servidor detenido")
+            self.on_log(_("[.] Servidor detenido"))
 
     def _handle(self, conn, addr):
         conn.settimeout(protocol.TIMEOUT)
         protocol.tune_socket(conn)
         magic = protocol.recv_exact(conn, 4)
         if magic != protocol.MAGIC:
-            self.on_log("[!] Cliente no-WCP")
+            self.on_log(_("[!] Cliente no-WCP"))
             return
         hello = protocol.recv_msg(conn)
         if not hello or hello.get("type") != "hello":
@@ -105,15 +109,34 @@ class ReceiveServer:
             return
         if hello.get("pin") != self.pin:
             protocol.send_msg(conn, {"type": "hello_err", "msg": "PIN incorrecto"})
-            self.on_log("[!] PIN incorrecto")
+            self.on_log(_("[!] PIN incorrecto"))
             return
+        nombre = hello.get("hostname", "?")
+        if self.on_accept and addr[0] not in self._aprobados:
+            if not self.on_accept(nombre, addr[0]) or self._stop:
+                protocol.send_msg(conn, {"type": "hello_err", "msg": "rechazado"})
+                self.on_log(_("[!] Envío rechazado: {} ({})").format(nombre, addr[0]))
+                return
+            self._aprobados.add(addr[0])
         protocol.send_msg(conn, {"type": "hello_ok"})
-        self.on_log(f"[OK] Cliente '{hello.get('hostname','?')}' autenticado")
+        self.on_log(_("[OK] Cliente '{}' autenticado").format(nombre))
 
         files_ok = files_skip = files_fail = 0
         finished = False
         bytes_ok = 0
+        pre = 0  # bytes que ya estaban en el destino (saltados o parciales)
+        total_bytes = int(hello.get("total_bytes") or 0)  # emisores antiguos no lo envían
         t0 = time.time()
+
+        def progress(final=False):
+            if final:
+                pct = 100.0
+            else:
+                pct = min(100.0, 100.0 * (bytes_ok + pre) / total_bytes) if total_bytes else None
+            elapsed = max(time.time() - t0, 0.001)
+            self.on_progress(files_ok, files_skip, bytes_ok, bytes_ok / elapsed, pct)
+
+        progress()
 
         while True:
             # keepalive detecta un emisor caído; aquí solo se espera una posible decisión del usuario
@@ -130,7 +153,10 @@ class ReceiveServer:
             if typ == "plan":
                 offsets = self._plan(msg)
                 files_skip += offsets.count(-1)
+                for (_f, _r, size, _m), off in zip(msg["files"], offsets):
+                    pre += size if off == -1 else max(off, 0)
                 protocol.send_msg(conn, {"offsets": offsets})
+                progress()
                 continue
             if typ == "file":
                 n = self._recv_file(conn, msg)
@@ -139,18 +165,18 @@ class ReceiveServer:
                     continue
                 files_ok += 1
                 bytes_ok += n
-                elapsed = max(time.time() - t0, 0.001)
-                self.on_progress(files_ok, files_skip, bytes_ok, bytes_ok / elapsed)
+                progress()
                 continue
 
         if not finished:
-            self.on_log(f"[!] Conexión perdida: {files_ok} copiados, "
-                        f"{files_skip} saltados (el cliente puede reanudar)")
+            self.on_log(_("[!] Conexión perdida: {} copiados, {} saltados (el cliente puede reanudar)")
+                        .format(files_ok, files_skip))
             return
         if files_fail:
-            self.on_log(f"[!] {files_fail} archivos no se pudieron guardar (ver líneas anteriores)")
-        self.on_log(f"[OK] Sesión: {files_ok} copiados, {files_skip} saltados, "
-                    f"{bytes_ok / (1024 * 1024):.1f} MB")
+            self.on_log(_("[!] {} archivos no se pudieron guardar (ver líneas anteriores)").format(files_fail))
+        progress(final=True)
+        self.on_log(_("[OK] Sesión: {} copiados, {} saltados, {:.1f} MB")
+                    .format(files_ok, files_skip, bytes_ok / (1024 * 1024)))
 
     @staticmethod
     def _part(target, size, mtime):
@@ -225,7 +251,7 @@ class ReceiveServer:
             except Exception as e:
                 err = e
         if err:
-            self.on_log(f"[!] No se pudo guardar {rel}: {type(err).__name__}: {err}")
+            self.on_log(_("[!] No se pudo guardar {}: {}: {}").format(rel, type(err).__name__, err))
             return None
         return size - offset
 

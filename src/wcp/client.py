@@ -2,6 +2,7 @@
 import socket
 import time
 from . import protocol
+from .i18n import _
 from .scanner import walk
 
 
@@ -24,9 +25,15 @@ class SendClient:
         self.ok = False
         self._stop = False
         self._sent = 0
+        self._sock = None
 
     def stop(self):
         self._stop = True
+        try:
+            if self._sock:
+                self._sock.close()  # desbloquea una espera larga (p. ej. confirmación del receptor)
+        except OSError:
+            pass
 
     def run(self):
         try:
@@ -43,11 +50,11 @@ class SendClient:
                     failures = 0 if self._sent else failures + 1
                     if failures >= MAX_RETRIES:
                         raise
-                    self.on_log(f"[~] Conexión perdida ({e}). "
-                                f"Reconectando ({failures + 1}/{MAX_RETRIES})...")
+                    self.on_log(_("[~] Conexión perdida ({}). Reconectando ({}/{})...")
+                                .format(e, failures + 1, MAX_RETRIES))
                     self._wait(min(2 ** failures, 15))
         except Exception as e:
-            self.on_log(f"[ERROR] {e}")
+            self.on_log(_("[ERROR] {}").format(e))
 
     def _decide(self, label, rel):
         key = (label, _norm(rel))
@@ -58,7 +65,7 @@ class SendClient:
             if self.on_conflict:
                 choice, apply_all = self.on_conflict(f"{label}/{key[1]}")
             if choice == "cancel":
-                raise RuntimeError("cancelado por el usuario")
+                raise RuntimeError(_("cancelado por el usuario"))
             if apply_all:
                 self._all = choice
             self._decisions[key] = choice
@@ -68,32 +75,38 @@ class SendClient:
         end = time.time() + secs
         while time.time() < end:
             if self._stop:
-                raise RuntimeError("cancelado por el usuario")
+                raise RuntimeError(_("cancelado por el usuario"))
             time.sleep(0.2)
 
     def _recv(self, sock):
         resp = protocol.recv_msg(sock)
         if resp is None:
-            raise ConnectionError("el receptor cerró la conexión")
+            raise ConnectionError(_("el receptor cerró la conexión"))
         return resp
 
     def _session(self, items):
-        self.on_log(f"Conectando a {self.host}:{self.port}...")
+        self.on_log(_("Conectando a {}:{}...").format(self.host, self.port))
+        total_files = sum(1 for it in items if it[0] == "file")
+        total_bytes = sum(it[5] for it in items if it[0] == "file")
         sock = socket.create_connection((self.host, self.port), timeout=15)
+        self._sock = sock
         sock.settimeout(protocol.TIMEOUT)
         protocol.tune_socket(sock)
         try:
             sock.sendall(protocol.MAGIC)
             protocol.send_msg(sock, {"type": "hello", "pin": self.pin,
-                                     "hostname": socket.gethostname()})
+                                     "hostname": socket.gethostname(),
+                                     "total_files": total_files, "total_bytes": total_bytes})
+            sock.settimeout(protocol.IDLE_TIMEOUT)  # el receptor puede estar pidiendo confirmación
             resp = self._recv(sock)
+            sock.settimeout(protocol.TIMEOUT)
             if resp.get("type") != "hello_ok":
-                raise RuntimeError(f"Handshake fallido: {resp.get('msg', 'sin respuesta')}")
-            self.on_log("[OK] Conectado y autenticado")
+                if resp.get("msg") == "rechazado":
+                    raise RuntimeError(_("El receptor rechazó la conexión"))
+                raise RuntimeError(_("Handshake fallido: {}").format(_(resp.get("msg", "sin respuesta"))))
+            self.on_log(_("[OK] Conectado y autenticado"))
 
-            total_files = sum(1 for it in items if it[0] == "file")
-            total_bytes = sum(it[5] for it in items if it[0] == "file")
-            self.on_log(f"Enviando {total_files} archivos ({_human(total_bytes)})")
+            self.on_log(_("Enviando {} archivos ({})").format(total_files, _human(total_bytes)))
 
             done = 0
             done_bytes = 0
@@ -114,12 +127,12 @@ class SendClient:
                 })
                 offsets = self._recv(sock).get("offsets")
                 if not isinstance(offsets, list) or len(offsets) != len(files):
-                    raise RuntimeError("plan inválido del receptor")
+                    raise RuntimeError(_("plan inválido del receptor"))
 
                 # el receptor ya dijo qué falta: se envía todo seguido, sin esperar acuses
                 for (kind, label, root, rel, path, size, mtime), offset in zip(files, offsets):
                     if self._stop:
-                        raise RuntimeError("cancelado por el usuario")
+                        raise RuntimeError(_("cancelado por el usuario"))
                     if offset == -2:  # existe y es distinto en el destino
                         offset = -1 if self._decide(label, rel) == "skip" else 0
                     if offset == -1:
@@ -128,12 +141,12 @@ class SendClient:
                         done_bytes += size
                         continue
                     if not 0 <= offset <= size:
-                        raise RuntimeError(f"offset inválido del receptor para {rel}")
+                        raise RuntimeError(_("offset inválido del receptor para {}").format(rel))
                     try:
                         f = open(path, "rb")
                     except OSError as e:
                         # bloqueado/ilegible: se avisa y se sigue, no es un corte de red
-                        self.on_log(f"[!] Omitido {rel}: {e}")
+                        self.on_log(_("[!] Omitido {}: {}").format(rel, e))
                         failed += 1
                         done += 1
                         continue
@@ -144,14 +157,14 @@ class SendClient:
                         })
                         if offset:
                             f.seek(offset)
-                            self.on_log(f"[i] Reanudando {rel} desde {_human(offset)}")
+                            self.on_log(_("[i] Reanudando {} desde {}").format(rel, _human(offset)))
                         remaining = size - offset
                         while remaining > 0:
                             if self._stop:
-                                raise RuntimeError("cancelado por el usuario")
+                                raise RuntimeError(_("cancelado por el usuario"))
                             chunk = f.read(min(protocol.CHUNK, remaining))
                             if not chunk:
-                                raise RuntimeError(f"archivo modificado durante el envío: {path}")
+                                raise RuntimeError(_("archivo modificado durante el envío: {}").format(path))
                             sock.sendall(chunk)
                             self._sent += len(chunk)
                             remaining -= len(chunk)
@@ -165,13 +178,12 @@ class SendClient:
             protocol.send_msg(sock, {"type": "done"})
             ack = self._recv(sock)
             if ack.get("status") != "ok":
-                raise ConnectionError("el receptor no confirmó la recepción")
+                raise ConnectionError(_("el receptor no confirmó la recepción"))
             failed += int(ack.get("failed", 0))
-            self.on_log(f"[OK] Terminado: {copied - int(ack.get('failed', 0))} copiados, "
-                        f"{skipped} saltados")
+            self.on_log(_("[OK] Terminado: {} copiados, {} saltados")
+                        .format(copied - int(ack.get("failed", 0)), skipped))
             if failed:
-                self.on_log(f"[!] {failed} archivos con error: pulsa Iniciar de nuevo "
-                            f"para reintentarlos (detalle en el registro del receptor)")
+                self.on_log(_("[!] {} archivos con error: pulsa Iniciar de nuevo para reintentarlos (detalle en el registro del receptor)").format(failed))
         finally:
             try:
                 sock.close()

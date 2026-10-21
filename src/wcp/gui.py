@@ -6,13 +6,14 @@ import socket
 import threading
 import time
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import Toplevel, filedialog, messagebox
 
 import customtkinter as ctk
 
 from . import APP_NAME, __version__, protocol
 from .client import SendClient
 from .config_engine import config, defaults
+from .i18n import IDIOMAS, _, lang, set_lang
 from .scanner import FOLDERS, resolve_folder
 from .server import ReceiveServer
 
@@ -62,72 +63,9 @@ TEMAS = {
         "#F1ECFA", "#B3A6D1", "#8374AB", "#8B5CF6", "#7C3AED", "#FFFFFF")),
 }
 
-IDIOMAS = {"es": "Español", "en": "English"}
-_LANG = "es"
-
-# El texto de la UI está en español; aquí solo van las traducciones al inglés.
-EN = {
-    "▲  Enviar Archivos": "▲  Send Files", "▼  Recibir Archivos": "▼  Receive Files",
-    "⚙️  Ajustes": "⚙️  Settings", "Enviar Archivos": "Send Files",
-    "Recibir Archivos": "Receive Files", "Ajustes": "Settings",
-    "Destino": "Destination", "Dirección IP / host": "IP address / host", "Buscar": "Search",
-    "Puerto": "Port", "Carpetas": "Folders", "Escritorio": "Desktop", "Documentos": "Documents",
-    "Descargas": "Downloads", "Música": "Music", "Fotos": "Photos", "NO EXISTE": "MISSING",
-    "Iniciar envío": "Start sending", "Detener": "Stop", "Listo": "Ready", "Detenido": "Stopped",
-    "Tu PC": "This PC", "Comparte estos datos con el origen.": "Share this info with the sender.",
-    "Carpeta destino": "Destination folder",
-    "Usar las carpetas de destino por defecto (Ajustes)": "Use the default destination folders (Settings)",
-    "Una sola carpeta para todo": "A single folder for everything",
-    "Iniciar recepción": "Start receiving",
-    "Configuración general de WCP.": "General WCP settings.",
-    "Apariencia e idioma": "Appearance and language", "Idioma:": "Language:",
-    "Color de interfaz:": "Interface color:", "Red": "Network",
-    "Puerto por defecto": "Default port",
-    "Carpetas de destino por defecto": "Default destination folders",
-    "Dónde guarda este PC lo que recibe de cada carpeta del origen. Se aplican al iniciar la recepción.":
-        "Where this PC saves what it receives from each source folder. Applied when receiving starts.",
-    "Acerca de WCP": "About WCP", "Versión": "Version",
-    "Motor de transferencia: TCP con reanudación de archivos.": "Transfer engine: TCP with file resume.",
-    "Desarrollado con Python y CustomTkinter.": "Built with Python and CustomTkinter.",
-    "Licencias": "Licenses",
-    "WCP se distribuye bajo cualquiera de las dos, a tu elección.":
-        "WCP is distributed under either of the two, at your option.",
-    "Cuenta KODECOUNT": "KODECOUNT account",
-    "Próximamente: vincula tu cuenta de KODECOUNT con WCP.":
-        "Coming soon: link your KODECOUNT account to WCP.",
-    "Vincular cuenta": "Link account",
-    "Guardar Cambios": "Save Changes", "✓  Guardado": "✓  Saved", "Puerto inválido": "Invalid port",
-    "El idioma y el color se aplicarán al reiniciar WCP.":
-        "Language and color will apply when WCP restarts.",
-    "[i] Buscando servidores WCP en la red (2s)...": "[i] Looking for WCP servers on the network (2s)...",
-    "[!] No se encontraron servidores": "[!] No servers found",
-    "[OK] Encontrados: {}": "[OK] Found: {}",
-    "Completa IP y PIN": "Enter IP and PIN",
-    "Selecciona al menos una carpeta": "Select at least one folder",
-    "Conectando...": "Connecting...",
-    "{done}/{total} archivos · {db}/{tb} · {rate}/s": "{done}/{total} files · {db}/{tb} · {rate}/s",
-    "Archivo existente": "Existing file",
-    "El archivo ya existe en el destino y es distinto:":
-        "The file already exists at the destination and is different:",
-    "Aplicar a todos los siguientes": "Apply to all following",
-    "Omitir": "Skip", "Sobrescribir": "Overwrite", "Cancelar": "Cancel",
-    "Completado ✔": "Completed ✔",
-    "Interrumpido — pulsa Iniciar para reanudar": "Interrupted — press Start to resume",
-    "[!] Deteniendo...": "[!] Stopping...", "Elige carpeta destino": "Choose a destination folder",
-    "Recibidos: {ok} · Saltados: {skip} · {b} · {rate}/s":
-        "Received: {ok} · Skipped: {skip} · {b} · {rate}/s",
-    "Escuchando...": "Listening...",
-}
-
-
-def _(texto):
-    return EN.get(texto, texto) if _LANG == "en" else texto
-
-
 def aplicar_preferencias():
     """Aplica idioma y tema guardados en la configuración."""
-    global _LANG
-    _LANG = config.config["language"] if config.config["language"] in IDIOMAS else "es"
+    set_lang(config.config["language"])
     clave = config.config["theme"] if config.config["theme"] in TEMAS else "dark_warm"
     for k, v in TEMAS[clave][2].items():
         setattr(P, k, v)
@@ -230,6 +168,12 @@ def Menu(master, values, variable):
                              dropdown_text_color=P.TXT, dropdown_hover_color=P.CARD_ALT)
 
 
+def Switch(master, texto, variable, comando=None):
+    return ctk.CTkSwitch(master, text=texto, variable=variable, command=comando,
+                         progress_color=P.ACCENT, button_color=P.TXT, button_hover_color=P.TXT_2,
+                         fg_color=P.CARD_ALT, text_color=P.TXT, font=F(12))
+
+
 def Log(master, height=200):
     return ctk.CTkTextbox(master, height=height, state="disabled", fg_color=P.BG,
                           text_color=P.SUCCESS, font=FM(11), wrap="word",
@@ -318,10 +262,13 @@ class App:
 
         self.send_q = queue.Queue()
         self.recv_q = queue.Queue()
+        # texto = plantilla en español (se traduce al mostrarla) + valores; así sobrevive a un cambio de idioma
         self.state = {
-            "send": {"pct": 0, "text": _("Listo")},
-            "recv": {"text": _("Listo")},
+            "send": {"pct": 0, "tpl": "Listo", "kw": {}},
+            "recv": {"pct": 0, "tpl": "Detenido", "kw": {}},
         }
+        self.send_lines = []
+        self.recv_lines = []
         self.server = None
         self.client = None
         self._closing = False
@@ -464,11 +411,8 @@ class App:
         card.pack(fill="x", pady=(0, 16))
         SectionTitle(card, _("Carpeta destino")).pack(anchor="w", padx=24, pady=(24, 12))
         self.usar_defecto = ctk.BooleanVar(value=True)
-        ctk.CTkSwitch(card, text=_("Usar las carpetas de destino por defecto (Ajustes)"),
-                      variable=self.usar_defecto, command=self._toggle_destino,
-                      progress_color=P.ACCENT, button_color=P.TXT, button_hover_color=P.TXT_2,
-                      fg_color=P.CARD_ALT, text_color=P.TXT, font=F(12)).pack(
-            anchor="w", padx=24, pady=(0, 12))
+        Switch(card, _("Usar las carpetas de destino por defecto (Ajustes)"),
+               self.usar_defecto, self._toggle_destino).pack(anchor="w", padx=24, pady=(0, 12))
         self.dest_r = InputField(card, _("Una sola carpeta para todo"), "C:\\Users\\...",
                                  value=str(Path.home()))
         self.dest_r.add_button("...", lambda: self._pick(self.dest_r))
@@ -484,6 +428,8 @@ class App:
         self.btn_recv_stop.configure(state="disabled")
         self.btn_recv_stop.pack(side="left", padx=10)
 
+        self.prog_r = Progress(box)
+        self.prog_r.pack(fill="x", pady=(4, 6))
         self.status_r = ctk.CTkLabel(box, text=_("Detenido"), font=F(12), text_color=P.TXT_2, anchor="w")
         self.status_r.pack(anchor="w", pady=(0, 12))
         self.recv_log = Log(box)
@@ -500,10 +446,10 @@ class App:
         row = ctk.CTkFrame(card, fg_color="transparent")
         row.pack(fill="x", padx=24, pady=(0, 24))
         ctk.CTkLabel(row, text=_("Idioma:"), font=F(12), text_color=P.TXT).pack(side="left")
-        self.lang_var = ctk.StringVar(value=IDIOMAS[_LANG])
+        self.lang_var = ctk.StringVar(value=IDIOMAS[lang()])
         Menu(row, list(IDIOMAS.values()), self.lang_var).pack(side="left", padx=(10, 40))
         ctk.CTkLabel(row, text=_("Color de interfaz:"), font=F(12), text_color=P.TXT).pack(side="left")
-        self.temas_nombre = {k: v[1 if _LANG == "en" else 0] for k, v in TEMAS.items()}
+        self.temas_nombre = {k: v[1 if lang() == "en" else 0] for k, v in TEMAS.items()}
         self.theme_var = ctk.StringVar(value=self.temas_nombre.get(config.config["theme"], self.temas_nombre["dark_warm"]))
         Menu(row, list(self.temas_nombre.values()), self.theme_var).pack(side="left", padx=10)
 
@@ -512,7 +458,10 @@ class App:
         SectionTitle(card, _("Red")).pack(anchor="w", padx=24, pady=(24, 16))
         self.port_cfg = InputField(card, _("Puerto por defecto"), str(protocol.DEFAULT_PORT),
                                    value=config.config["default_port"])
-        self.port_cfg.pack(fill="x", padx=24, pady=(0, 24))
+        self.port_cfg.pack(fill="x", padx=24, pady=(0, 16))
+        self.confirm_var = ctk.BooleanVar(value=config.config["confirm_receive"])
+        Switch(card, _("Pedir confirmación antes de recibir"), self.confirm_var).pack(
+            anchor="w", padx=24, pady=(0, 24))
 
         card = Card(box)
         card.pack(fill="x", pady=(0, 16))
@@ -570,35 +519,63 @@ class App:
         idioma = next(k for k, v in IDIOMAS.items() if v == self.lang_var.get())
         tema = next(k for k, v in self.temas_nombre.items() if v == self.theme_var.get())
         cambio = (idioma, tema) != (config.config["language"], config.config["theme"])
-        config.config.update(default_port=port, dest_paths=paths, language=idioma, theme=tema)
+        config.config.update(default_port=port, dest_paths=paths, language=idioma, theme=tema,
+                             confirm_receive=self.confirm_var.get())
         config.save()
         self.port_s.set(port)
         if self.server is None:
             self.port_r.set(port)
         if cambio:
-            if self.server is None and self.client is None:
-                # diferido: este botón se destruye en la reconstrucción
-                self.root.after(50, lambda: self._reconstruir("config"))
-                return
-            messagebox.showinfo("WCP", _("El idioma y el color se aplicarán al reiniciar WCP."))
+            # diferido: este botón se destruye en la reconstrucción
+            self.root.after(50, lambda: self._reconstruir("config"))
+            return
         self.btn_save.configure(text=_("✓  Guardado"), fg_color=P.SUCCESS)
         self._save_after = self.root.after(2000, lambda: self.btn_save.configure(
             text="💾  " + _("Guardar Cambios"), fg_color=P.ACCENT))
 
     def _reconstruir(self, vista):
-        """Reaplica idioma y tema: reconstruye la UI (solo sin envío ni recepción activos)."""
+        """Reaplica idioma y tema reconstruyendo la UI; conserva campos, registros y envío/recepción en curso."""
         if self._save_after:
             self.root.after_cancel(self._save_after)
             self._save_after = None
+        snap = dict(
+            host=self.host_s.get(), port_s=self.port_s.get(), pin_s=self.pin_s.get(),
+            folders={n: v.get() for n, v in self.folder_vars.items()},
+            port_r=self.port_r.get(), pin_r=self.pin_r.get(), dest=self.dest_r.get(),
+            usar=self.usar_defecto.get())
         aplicar_preferencias()
         for w in self.root.winfo_children():
-            w.destroy()
+            if not isinstance(w, Toplevel):  # un diálogo abierto debe seguir esperando respuesta
+                w.destroy()
         self._vistas.clear()
         self._nav_buttons.clear()
         self.root.configure(fg_color=P.BG)
-        self.state = {"send": {"pct": 0, "text": _("Listo")}, "recv": {"text": _("Listo")}}
         self._build_topbar()
         self._build_content()
+
+        self.host_s.set(snap["host"])
+        self.port_s.set(snap["port_s"])
+        self.pin_s.set(snap["pin_s"])
+        for n, v in snap["folders"].items():
+            self.folder_vars[n].set(v)
+        self.port_r.set(snap["port_r"])
+        self.pin_r.set(snap["pin_r"])
+        self.dest_r.set_enabled(True)  # un campo desactivado no admite escritura
+        self.dest_r.set(snap["dest"])
+        self.usar_defecto.set(snap["usar"])
+        self._toggle_destino()
+        for box, lines in ((self.send_log, self.send_lines), (self.recv_log, self.recv_lines)):
+            if lines:
+                box.configure(state="normal")
+                box.insert("end", "\n".join(lines) + "\n")
+                box.see("end")
+                box.configure(state="disabled")
+        if self.client:
+            self.btn_send.configure(state="disabled")
+            self.btn_send_stop.configure(state="normal")
+        if self.server:
+            self.btn_recv.configure(state="disabled")
+            self.btn_recv_stop.configure(state="normal")
         self._show_view(vista)
 
     # ---------- Helpers UI ----------
@@ -613,30 +590,43 @@ class App:
         if p:
             field.set(p)
 
-    def _write_log(self, box, msg):
+    def _write_log(self, box, lines, msg):
+        lines.append(msg)
         box.configure(state="normal")
         box.insert("end", msg + "\n")
         box.see("end")
         box.configure(state="disabled")
+
+    @staticmethod
+    def _texto(estado):
+        t = _(estado["tpl"])
+        return t.format(**estado["kw"]) if estado["kw"] else t
+
+    def _set_estado(self, cual, tpl, pct=None, **kw):
+        e = self.state[cual]
+        e["tpl"], e["kw"] = tpl, kw
+        if pct is not None:
+            e["pct"] = pct
 
     def _poll(self):
         if self._closing:
             return
         try:
             while True:
-                self._write_log(self.send_log, self.send_q.get_nowait())
+                self._write_log(self.send_log, self.send_lines, self.send_q.get_nowait())
         except queue.Empty:
             pass
         try:
             while True:
-                self._write_log(self.recv_log, self.recv_q.get_nowait())
+                self._write_log(self.recv_log, self.recv_lines, self.recv_q.get_nowait())
         except queue.Empty:
             pass
 
-        s = self.state["send"]
-        self.prog_s.set(s["pct"] / 100)
-        self.status_s.configure(text=s["text"])
-        self.status_r.configure(text=self.state["recv"]["text"])
+        for cual, barra, etiqueta in (("send", self.prog_s, self.status_s),
+                                      ("recv", self.prog_r, self.status_r)):
+            e = self.state[cual]
+            barra.set(e["pct"] / 100)
+            etiqueta.configure(text=self._texto(e))
 
         self.root.after(120, self._poll)
 
@@ -679,18 +669,17 @@ class App:
         config.set("last_ip", host)
         self.btn_send.configure(state="disabled")
         self.btn_send_stop.configure(state="normal")
-        self.state["send"] = {"pct": 0, "text": _("Conectando...")}
+        self._set_estado("send", "Conectando...", pct=0)
 
         def log(m):
             self.send_q.put(m)
             if m.startswith("[~]"):  # reconexión: visible también en la barra de estado
-                self.state["send"]["text"] = m[4:]
+                self._set_estado("send", m[4:])
 
         def prog(done, total, db, tb, rate):
-            self.state["send"]["pct"] = 100.0 * db / max(tb, 1)
-            self.state["send"]["text"] = _(
-                "{done}/{total} archivos · {db}/{tb} · {rate}/s").format(
-                done=done, total=total, db=_human(db), tb=_human(tb), rate=_human(int(rate)))
+            self._set_estado("send", "{done}/{total} archivos · {db}/{tb} · {rate}/s",
+                             pct=100.0 * db / max(tb, 1), done=done, total=total,
+                             db=_human(db), tb=_human(tb), rate=_human(int(rate)))
 
         self.client = SendClient(host, port, pin, folders, log, prog,
                                  on_conflict=self._ask_conflict)
@@ -703,42 +692,56 @@ class App:
 
         threading.Thread(target=runner, daemon=True).start()
 
-    def _ask_conflict(self, name):
-        """Se llama desde el hilo de envío: muestra el diálogo en el hilo de Tk y espera."""
+    def _dialogo(self, titulo, texto, nombre, botones, casilla=None, defecto=None):
+        """Muestra un diálogo desde cualquier hilo y espera.
+        botones: [(texto, valor, tipo)]. Devuelve (valor elegido, casilla marcada)."""
         done = threading.Event()
-        result = {"choice": "cancel", "all": False}
+        result = {"valor": defecto, "marca": False}
 
         def show():
             win = ctk.CTkToplevel(self.root, fg_color=P.CARD)
-            win.title(_("Archivo existente"))
+            win.title(titulo)
             win.transient(self.root)
             win.resizable(False, False)
-            ctk.CTkLabel(win, text=_("El archivo ya existe en el destino y es distinto:"),
-                         font=F(12), text_color=P.TXT_2).pack(anchor="w", padx=20, pady=(20, 2))
-            ctk.CTkLabel(win, text=name, font=F(13, "bold"), text_color=P.TXT, wraplength=420,
+            ctk.CTkLabel(win, text=texto, font=F(12), text_color=P.TXT_2).pack(
+                anchor="w", padx=20, pady=(20, 2))
+            ctk.CTkLabel(win, text=nombre, font=F(13, "bold"), text_color=P.TXT, wraplength=420,
                          justify="left").pack(anchor="w", padx=20, pady=(0, 12))
-            apply_all = ctk.BooleanVar(value=False)
-            Check(win, _("Aplicar a todos los siguientes"), apply_all).pack(anchor="w", padx=20)
+            marca = ctk.BooleanVar(value=False)
+            if casilla:
+                Check(win, casilla, marca).pack(anchor="w", padx=20)
 
-            def pick(choice):
-                result["choice"] = choice
-                result["all"] = apply_all.get()
+            def pick(valor):
+                result["valor"] = valor
+                result["marca"] = marca.get()
                 win.destroy()
 
             bar = ctk.CTkFrame(win, fg_color="transparent")
             bar.pack(fill="x", padx=20, pady=20)
-            for text, choice, tipo in ((_("Omitir"), "skip", "secondary"),
-                                       (_("Sobrescribir"), "overwrite", "primary"),
-                                       (_("Cancelar"), "cancel", "secondary")):
-                Btn(bar, text, lambda c=choice: pick(c), tipo=tipo, ancho=110).pack(
+            for t, valor, tipo in botones:
+                Btn(bar, t, lambda v=valor: pick(v), tipo=tipo, ancho=110).pack(
                     side="left", padx=(0, 8))
-            win.protocol("WM_DELETE_WINDOW", lambda: pick("cancel"))
+            win.protocol("WM_DELETE_WINDOW", lambda: pick(defecto))
+            win.lift()
             win.after(100, win.grab_set)  # CTkToplevel aún no es visible al crearse
             win.bind("<Destroy>", lambda e: done.set() if e.widget is win else None)
 
         self.root.after(0, show)
         done.wait()
-        return result["choice"], result["all"]
+        return result["valor"], result["marca"]
+
+    def _ask_conflict(self, name):
+        return self._dialogo(
+            _("Archivo existente"), _("El archivo ya existe en el destino y es distinto:"), name,
+            [(_("Omitir"), "skip", "secondary"), (_("Sobrescribir"), "overwrite", "primary"),
+             (_("Cancelar"), "cancel", "secondary")],
+            casilla=_("Aplicar a todos los siguientes"), defecto="cancel")
+
+    def _ask_accept(self, host, ip):
+        elegido, _todo = self._dialogo(
+            _("Solicitud de envío"), _("Este equipo quiere enviarte archivos:"), f"{host} ({ip})",
+            [(_("Aceptar"), True, "primary"), (_("Rechazar"), False, "secondary")], defecto=False)
+        return elegido
 
     def _send_done(self):
         ok = self.client.ok
@@ -746,10 +749,9 @@ class App:
         self.btn_send.configure(state="normal")
         self.btn_send_stop.configure(state="disabled")
         if ok:
-            self.state["send"]["pct"] = 100
-            self.state["send"]["text"] = _("Completado ✔")
+            self._set_estado("send", "Completado ✔", pct=100)
         else:
-            self.state["send"]["text"] = _("Interrumpido — pulsa Iniciar para reanudar")
+            self._set_estado("send", "Interrumpido — pulsa Iniciar para reanudar")
 
     def _stop_send(self):
         if self.client:
@@ -774,18 +776,18 @@ class App:
 
         def log(m): self.recv_q.put(m)
 
-        def prog(ok, skip, b, rate):
-            self.state["recv"]["text"] = _(
-                "Recibidos: {ok} · Saltados: {skip} · {b} · {rate}/s").format(
-                ok=ok, skip=skip, b=_human(b), rate=_human(int(rate)))
+        def prog(ok, skip, b, rate, pct):
+            self._set_estado("recv", "Recibidos: {ok} · Saltados: {skip} · {b} · {rate}/s",
+                             pct=pct, ok=ok, skip=skip, b=_human(b), rate=_human(int(rate)))
 
         dest_map = dict(config.config["dest_paths"]) if usar_defecto else None
+        on_accept = self._ask_accept if config.config["confirm_receive"] else None
         self.server = ReceiveServer(port, pin, dest or str(Path.home()), log, prog,
-                                    dest_map=dest_map)
+                                    dest_map=dest_map, on_accept=on_accept)
         self.server.start()
         self.btn_recv.configure(state="disabled")
         self.btn_recv_stop.configure(state="normal")
-        self.state["recv"]["text"] = _("Escuchando...")
+        self._set_estado("recv", "Escuchando...", pct=0)
 
     def _stop_recv(self):
         if self.server:
@@ -793,7 +795,7 @@ class App:
             self.server = None
         self.btn_recv.configure(state="normal")
         self.btn_recv_stop.configure(state="disabled")
-        self.state["recv"]["text"] = _("Detenido")
+        self._set_estado("recv", "Detenido", pct=0)
 
     def _on_close(self):
         self._closing = True
