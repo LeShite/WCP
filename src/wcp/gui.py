@@ -175,9 +175,23 @@ def Switch(master, texto, variable, comando=None):
 
 
 def Log(master, height=200):
-    return ctk.CTkTextbox(master, height=height, state="disabled", fg_color=P.BG,
-                          text_color=P.SUCCESS, font=FM(11), wrap="word",
-                          border_width=1, border_color=P.BORDER)
+    box = ctk.CTkTextbox(master, height=height, state="disabled", fg_color=P.BG,
+                         text_color=P.SUCCESS, font=FM(11), wrap="word",
+                         border_width=1, border_color=P.BORDER)
+    box.tag_config("err", foreground=P.DANGER)
+    box.tag_config("warn", foreground=P.ACCENT)
+    box.tag_config("info", foreground=P.TXT_2)
+    return box
+
+
+def _tag_linea(msg):
+    if msg.startswith(("[!]", "[ERROR]")):
+        return "err"
+    if msg.startswith("[~]"):
+        return "warn"
+    if msg.startswith(("[i]", "[.]", "[+]")):
+        return "info"
+    return None
 
 
 def Progress(master):
@@ -236,6 +250,14 @@ def discover(timeout=2.0):
             continue
     s.close()
     return found
+
+
+def _eta(restante, rate):
+    if rate < 1 or restante <= 0:
+        return "ETA --"
+    m, sec = divmod(int(restante / rate), 60)
+    h, m = divmod(m, 60)
+    return "ETA " + (f"{h}h {m:02d}m" if h else f"{m}m {sec:02d}s" if m else f"{sec}s")
 
 
 def _human(n):
@@ -396,8 +418,13 @@ class App:
         card.pack(fill="x", pady=(20, 16))
         SectionTitle(card, _("Tu PC"), _("Comparte estos datos con el origen.")).pack(
             anchor="w", padx=24, pady=(24, 12))
-        ctk.CTkLabel(card, text=f"IP: {', '.join(local_ips())}", font=F(14, "bold"),
-                     text_color=P.ACCENT).pack(anchor="w", padx=24, pady=(0, 12))
+        ips = local_ips()
+        fila_ip = ctk.CTkFrame(card, fg_color="transparent")
+        fila_ip.pack(anchor="w", padx=24, pady=(0, 12))
+        ctk.CTkLabel(fila_ip, text=f"IP: {', '.join(ips)}", font=F(14, "bold"),
+                     text_color=P.ACCENT).pack(side="left")
+        Btn(fila_ip, "⧉", lambda: self._copiar(ips[0]), tipo="secondary", ancho=44,
+            height=30).pack(side="left", padx=(10, 0))
         row = ctk.CTkFrame(card, fg_color="transparent")
         row.pack(fill="x", padx=24, pady=(0, 24))
         self.port_r = InputField(row, _("Puerto"), str(protocol.DEFAULT_PORT),
@@ -405,6 +432,7 @@ class App:
         self.port_r.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.pin_r = InputField(row, "PIN", value=f"{random.randint(100000, 999999)}")
         self.pin_r.add_button("↻", self._new_pin, ancho=44)
+        self.pin_r.add_button("⧉", lambda: self._copiar(self.pin_r.get()), ancho=44)
         self.pin_r.pack(side="left", fill="x", expand=True)
 
         card = Card(box)
@@ -565,11 +593,11 @@ class App:
         self.usar_defecto.set(snap["usar"])
         self._toggle_destino()
         for box, lines in ((self.send_log, self.send_lines), (self.recv_log, self.recv_lines)):
-            if lines:
-                box.configure(state="normal")
-                box.insert("end", "\n".join(lines) + "\n")
-                box.see("end")
-                box.configure(state="disabled")
+            box.configure(state="normal")
+            for line in lines:
+                box.insert("end", line + "\n", _tag_linea(line))
+            box.see("end")
+            box.configure(state="disabled")
         if self.client:
             self.btn_send.configure(state="disabled")
             self.btn_send_stop.configure(state="normal")
@@ -579,6 +607,10 @@ class App:
         self._show_view(vista)
 
     # ---------- Helpers UI ----------
+    def _copiar(self, texto):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(texto)
+
     def _new_pin(self):
         self.pin_r.set(f"{random.randint(100000, 999999)}")
 
@@ -593,7 +625,7 @@ class App:
     def _write_log(self, box, lines, msg):
         lines.append(msg)
         box.configure(state="normal")
-        box.insert("end", msg + "\n")
+        box.insert("end", msg + "\n", _tag_linea(msg))
         box.see("end")
         box.configure(state="disabled")
 
@@ -626,7 +658,9 @@ class App:
                                       ("recv", self.prog_r, self.status_r)):
             e = self.state[cual]
             barra.set(e["pct"] / 100)
-            etiqueta.configure(text=self._texto(e))
+            color = (P.SUCCESS if e["tpl"].startswith("Completado")
+                     else P.DANGER if e["tpl"].startswith("Interrumpido") else P.TXT_2)
+            etiqueta.configure(text=self._texto(e), text_color=color)
 
         self.root.after(120, self._poll)
 
@@ -677,9 +711,10 @@ class App:
                 self._set_estado("send", m[4:])
 
         def prog(done, total, db, tb, rate):
-            self._set_estado("send", "{done}/{total} archivos · {db}/{tb} · {rate}/s",
+            self._set_estado("send", "{done}/{total} archivos · {db}/{tb} · {rate}/s · {eta}",
                              pct=100.0 * db / max(tb, 1), done=done, total=total,
-                             db=_human(db), tb=_human(tb), rate=_human(int(rate)))
+                             db=_human(db), tb=_human(tb), rate=_human(int(rate)),
+                             eta=_eta(tb - db, rate))
 
         self.client = SendClient(host, port, pin, folders, log, prog,
                                  on_conflict=self._ask_conflict)

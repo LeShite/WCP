@@ -29,6 +29,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - Ajustes → Acerca de: licencias MIT y Apache 2.0, y un apartado reservado «Cuenta KODECOUNT» (aún sin función).
 - Dependencia nueva: `customtkinter`.
 
+## [Sin publicar] - rama ui-mejoras
+### Interfaz
+- Registro con colores: errores `[!]`/`[ERROR]` en rojo, reconexiones `[~]` en el color de acento, avisos `[i]`/`[.]`/`[+]` atenuados.
+- El envío muestra el tiempo restante (ETA) junto a velocidad y tamaño.
+- El estado se pinta en verde al completar y en rojo al interrumpirse.
+- Botones para copiar la IP y el PIN en la pestaña Recibir.
+
 ## [1.5.0] - 2026-10-20
 
 ### Añadido
