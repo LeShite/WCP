@@ -36,6 +36,14 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - El receptor cuenta como "saltados" los archivos omitidos en el aviso de conflicto.
 - Si el receptor no responde a la solicitud de envío, el emisor no reintenta (cada intento abría otra ventana).
 
+## [Sin publicar] - rama ui-mejoras
+### Interfaz
+- Registro con colores: errores `[!]`/`[ERROR]` en rojo, reconexiones `[~]` en el color de acento, avisos `[i]`/`[.]`/`[+]` atenuados.
+- El envío muestra el tiempo restante (ETA) junto a velocidad y tamaño.
+- El estado se pinta en verde al completar y en rojo al interrumpirse.
+- Botones para copiar la IP y el PIN en la pestaña Recibir.
+
+
 ## [1.5.0] - 2026-10-20
 
 ### Añadido

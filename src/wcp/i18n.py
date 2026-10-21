@@ -43,7 +43,7 @@ EN = {
     "Completa IP y PIN": "Enter IP and PIN",
     "Selecciona al menos una carpeta": "Select at least one folder",
     "Conectando...": "Connecting...",
-    "{done}/{total} archivos · {db}/{tb} · {rate}/s": "{done}/{total} files · {db}/{tb} · {rate}/s",
+    "{done}/{total} archivos · {db}/{tb} · {rate}/s · {eta}": "{done}/{total} files · {db}/{tb} · {rate}/s · {eta}",
     "Archivo existente": "Existing file",
     "El archivo ya existe en el destino y es distinto:":
         "The file already exists at the destination and is different:",
