@@ -98,7 +98,11 @@ class SendClient:
                                      "hostname": socket.gethostname(),
                                      "total_files": total_files, "total_bytes": total_bytes})
             sock.settimeout(protocol.IDLE_TIMEOUT)  # el receptor puede estar pidiendo confirmación
-            resp = self._recv(sock)
+            try:
+                resp = self._recv(sock)
+            except socket.timeout:
+                # no reintentar: cada intento abriría otra ventana de confirmación en el receptor
+                raise RuntimeError(_("El receptor no respondió a la solicitud")) from None
             sock.settimeout(protocol.TIMEOUT)
             if resp.get("type") != "hello_ok":
                 if resp.get("msg") == "rechazado":
@@ -110,7 +114,7 @@ class SendClient:
 
             done = 0
             done_bytes = 0
-            copied = skipped = failed = 0
+            copied = skipped = failed = conflict_skips = 0
             t0 = time.time()
 
             def progress():
@@ -135,6 +139,7 @@ class SendClient:
                         raise RuntimeError(_("cancelado por el usuario"))
                     if offset == -2:  # existe y es distinto en el destino
                         offset = -1 if self._decide(label, rel) == "skip" else 0
+                        conflict_skips += offset == -1
                     if offset == -1:
                         skipped += 1
                         done += 1
@@ -175,7 +180,7 @@ class SendClient:
                 progress()
 
             # el acuse final confirma que el receptor guardó todo
-            protocol.send_msg(sock, {"type": "done"})
+            protocol.send_msg(sock, {"type": "done", "skipped_conflicts": conflict_skips})
             ack = self._recv(sock)
             if ack.get("status") != "ok":
                 raise ConnectionError(_("el receptor no confirmó la recepción"))

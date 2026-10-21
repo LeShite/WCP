@@ -29,6 +29,13 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - Ajustes → Acerca de: licencias MIT y Apache 2.0, y un apartado reservado «Cuenta KODECOUNT» (aún sin función).
 - Dependencia nueva: `customtkinter`.
 
+## [Sin publicar] - rama fix-bugs-1-4
+### Corregido
+- Seguridad: `_safe()` ya no deja pasar rutas con unidad (`C:...`) que escapaban de la carpeta destino en Windows.
+- Seguridad: bloqueo de 60 s tras 5 PIN incorrectos seguidos desde una IP, comparación del PIN en tiempo constante y PIN generado con `secrets`.
+- El receptor cuenta como "saltados" los archivos omitidos en el aviso de conflicto.
+- Si el receptor no responde a la solicitud de envío, el emisor no reintenta (cada intento abría otra ventana).
+
 ## [1.5.0] - 2026-10-20
 
 ### Añadido

@@ -304,3 +304,78 @@ def test_engine_logs_follow_language(tmp_path, monkeypatch):
         srv.stop()
         time.sleep(1.2)
     assert c.ok and any("Connected and authenticated" in m for m in clogs)
+
+
+def test_safe_blocks_drive_and_traversal(tmp_path):
+    from wcp.server import _safe
+    for rel in ("C:/Users/x/evil.txt", "C:evil.txt", "..\\..\\x", "a/../../b", "a:b"):
+        out = _safe(rel)
+        assert ":" not in str(out) and ".." not in out.parts and not out.is_absolute(), rel
+        assert (tmp_path / out).resolve().is_relative_to(tmp_path.resolve())
+    assert str(_safe("Docs/sub/a.txt")) == os.path.join("Docs", "sub", "a.txt")
+
+
+def test_pin_lockout_after_repeated_failures(env):
+    src, dest, port = env
+    (src / "Documents" / "a.txt").write_bytes(b"x")
+    for _ in range(5):
+        c = SendClient("127.0.0.1", port, "mal", ["Documents"], lambda m: None, lambda *a: None)
+        c.run()
+    logs = []
+    c = SendClient("127.0.0.1", port, "1", ["Documents"], logs.append, lambda *a: None)
+    c.run()  # PIN correcto, pero la IP está bloqueada
+    assert not c.ok and any("Demasiados intentos" in m for m in logs)
+
+
+def test_pin_ok_resets_failures(env):
+    src, dest, port = env
+    (src / "Documents" / "a.txt").write_bytes(b"x")
+    for _ in range(4):
+        SendClient("127.0.0.1", port, "mal", ["Documents"], lambda m: None, lambda *a: None).run()
+    assert send(port)[0].ok  # el 5.º intento es correcto: no hay bloqueo
+    for _ in range(4):
+        SendClient("127.0.0.1", port, "mal", ["Documents"], lambda m: None, lambda *a: None).run()
+    assert send(port)[0].ok  # el contador se reinició
+
+
+def test_conflict_skips_counted_by_receiver(tmp_path, monkeypatch):
+    src = tmp_path / "src"
+    (src / "Documents").mkdir(parents=True)
+    monkeypatch.setattr(scanner, "resolve_folder", lambda name: src / name)
+    port = next(_ports)
+    rlogs = []
+    srv = ReceiveServer(port, "1", tmp_path / "dest", rlogs.append, lambda *a: None)
+    srv.start()
+    time.sleep(0.5)
+    try:
+        f = src / "Documents" / "a.txt"
+        f.write_bytes(b"v1")
+        assert send(port)[0].ok
+        f.write_bytes(b"version 2")
+        rlogs.clear()
+        c, _ = run_client(port, lambda n: ("skip", False))
+        assert c.ok and any("0 copiados, 1 saltados" in m for m in rlogs)
+    finally:
+        srv.stop()
+        time.sleep(1.2)
+
+
+def test_unanswered_confirmation_does_not_retry(tmp_path, monkeypatch):
+    src = tmp_path / "src"
+    (src / "Documents").mkdir(parents=True)
+    (src / "Documents" / "a.txt").write_bytes(b"x")
+    monkeypatch.setattr(scanner, "resolve_folder", lambda name: src / name)
+    monkeypatch.setattr(protocol, "IDLE_TIMEOUT", 1)
+    asked = []
+    port = next(_ports)
+    srv = ReceiveServer(port, "1", tmp_path / "dest", lambda m: None, lambda *a: None,
+                        on_accept=lambda h, ip: asked.append(h) or time.sleep(2.5) or True)
+    srv.start()
+    time.sleep(0.5)
+    try:
+        c, logs = send(port)
+        assert not c.ok and any("no respondió" in m for m in logs)
+        assert not any("Reconectando" in m for m in logs) and len(asked) == 1
+    finally:
+        srv.stop()
+        time.sleep(1.2)

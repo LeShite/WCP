@@ -4,6 +4,9 @@ _lang = "es"
 
 # Traducciones al inglés (clave = texto en español)
 EN = {
+    "Demasiados intentos, espera un minuto": "Too many attempts, wait a minute",
+    "[!] Demasiados intentos desde {}": "[!] Too many attempts from {}",
+    "El receptor no respondió a la solicitud": "The receiver did not answer the request",
     "▲  Enviar Archivos": "▲  Send Files", "▼  Recibir Archivos": "▼  Receive Files",
     "⚙️  Ajustes": "⚙️  Settings", "Enviar Archivos": "Send Files",
     "Recibir Archivos": "Receive Files", "Ajustes": "Settings",

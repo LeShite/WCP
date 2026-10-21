@@ -1,7 +1,7 @@
 """Interfaz CustomTkinter para WCP."""
 import json
 import queue
-import random
+import secrets
 import socket
 import threading
 import time
@@ -403,7 +403,7 @@ class App:
         self.port_r = InputField(row, _("Puerto"), str(protocol.DEFAULT_PORT),
                                  value=config.config["default_port"])
         self.port_r.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        self.pin_r = InputField(row, "PIN", value=f"{random.randint(100000, 999999)}")
+        self.pin_r = InputField(row, "PIN", value=f"{100000 + secrets.randbelow(900000)}")
         self.pin_r.add_button("↻", self._new_pin, ancho=44)
         self.pin_r.pack(side="left", fill="x", expand=True)
 
@@ -580,7 +580,7 @@ class App:
 
     # ---------- Helpers UI ----------
     def _new_pin(self):
-        self.pin_r.set(f"{random.randint(100000, 999999)}")
+        self.pin_r.set(f"{100000 + secrets.randbelow(900000)}")
 
     def _toggle_destino(self):
         self.dest_r.set_enabled(not self.usar_defecto.get())

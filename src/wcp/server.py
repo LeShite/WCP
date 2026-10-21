@@ -1,7 +1,9 @@
 """Motor de recepción: escucha, autentica y escribe archivos en disco."""
 import glob
+import hmac
 import json
 import os
+import re
 import socket
 import sys
 import threading
@@ -9,6 +11,9 @@ import time
 from pathlib import Path
 from . import protocol
 from .i18n import _
+
+MAX_FALLOS = 5      # PIN incorrectos seguidos desde una IP antes de bloquearla
+BLOQUEO_SEG = 60
 
 
 class ReceiveServer:
@@ -21,6 +26,7 @@ class ReceiveServer:
         # on_accept(hostname, ip) -> bool: el usuario decide; se recuerda por IP mientras el servidor siga activo
         self.on_accept = on_accept
         self._aprobados = set()
+        self._fallos = {}  # ip -> [fallos seguidos, bloqueada hasta]
         self.on_log = on_log
         self.on_progress = on_progress
         self._sock = None
@@ -107,10 +113,19 @@ class ReceiveServer:
         if not hello or hello.get("type") != "hello":
             protocol.send_msg(conn, {"type": "hello_err", "msg": "handshake inválido"})
             return
-        if hello.get("pin") != self.pin:
+        fallos = self._fallos.setdefault(addr[0], [0, 0.0])
+        if time.time() < fallos[1]:  # bloqueada: ni siquiera se comprueba el PIN
+            protocol.send_msg(conn, {"type": "hello_err", "msg": "Demasiados intentos, espera un minuto"})
+            self.on_log(_("[!] Demasiados intentos desde {}").format(addr[0]))
+            return
+        if not hmac.compare_digest(str(hello.get("pin")).encode(), self.pin.encode()):
+            fallos[0] += 1
+            if fallos[0] >= MAX_FALLOS:
+                fallos[0], fallos[1] = 0, time.time() + BLOQUEO_SEG
             protocol.send_msg(conn, {"type": "hello_err", "msg": "PIN incorrecto"})
             self.on_log(_("[!] PIN incorrecto"))
             return
+        fallos[0] = 0
         nombre = hello.get("hostname", "?")
         if self.on_accept and addr[0] not in self._aprobados:
             if not self.on_accept(nombre, addr[0]) or self._stop:
@@ -147,6 +162,7 @@ class ReceiveServer:
                 break
             typ = msg.get("type")
             if typ == "done":
+                files_skip += int(msg.get("skipped_conflicts", 0))  # omitidos por decisión del usuario
                 protocol.send_msg(conn, {"status": "ok", "failed": files_fail})
                 finished = True
                 break
@@ -278,5 +294,8 @@ class ReceiveServer:
 
 def _safe(s):
     s = str(s).replace("\\", "/")
-    parts = [p for p in s.split("/") if p not in ("", ".", "..")]
+    # sin ":" (unidad "C:") ni otros caracteres inválidos en Windows: una ruta con unidad
+    # reemplazaría la carpeta destino al unirla
+    parts = [re.sub(r'[<>:"|?*\x00-\x1f]', "_", p).rstrip(". ") for p in s.split("/")]
+    parts = [p for p in parts if p]
     return Path(*parts) if parts else Path("_")
