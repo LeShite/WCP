@@ -2,7 +2,7 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
-## [1.6.0] - 2026-10-20
+## [2.0.0] - 2026-10-20
 
 ### Añadido
 - Interfaz nueva con CustomTkinter (tema oscuro cálido, barra superior, tarjetas) y vista **Ajustes**.
