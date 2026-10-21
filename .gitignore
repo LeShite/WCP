@@ -9,3 +9,8 @@ venv/
 .mypy_cache/
 *.spec
 !run_wcp.spec
+
+# Secretos y configuración local de herramientas
+.env
+.env.*
+.claude/
